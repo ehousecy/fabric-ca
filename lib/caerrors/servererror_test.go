@@ -11,22 +11,14 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestErrorString(t *testing.T) {
-	msg := "nested http error message"
+	msg := "message"
 	err := NewHTTPErr(400, ErrMethodNotAllowed, "%s", msg)
 	errMsg := err.Error()
 	assert.Contains(t, errMsg, msg)
-
-	err2 := errors.WithMessage(err, "error occured")
-	assert.Contains(t, err2.Error(), "error occured: nested http error message")
-
-	msg = "error occured: %s"
-	err3 := errors.Wrapf(err, msg, "failure")
-	assert.Contains(t, err3.Error(), "error occured: failure: nested http error message")
 }
 
 func TestHTTPErr(t *testing.T) {
@@ -48,21 +40,21 @@ func TestRemoteErrorString(t *testing.T) {
 	lmsg := "local message"
 	rmsg := "remote message"
 	err := CreateHTTPErr(401, ErrMethodNotAllowed, "%s", lmsg).Remote(ErrUnknown, rmsg)
-	errMsg := Print(err)
+	errMsg := err.Error()
 	assert.Contains(t, errMsg, rmsg)
 }
 
 func TestNewAuthenticationError(t *testing.T) {
 	lmsg := "local message"
 	err := NewAuthenticationErr(ErrAuthenticationFailure, "%s", lmsg)
-	errMsg := Print(err)
+	errMsg := err.Error()
 	assert.Contains(t, errMsg, "Authentication failure")
 }
 
 func TestNewAuthorizationError(t *testing.T) {
 	lmsg := "local message"
 	err := NewAuthorizationErr(ErrAuthorizationFailure, "%s", lmsg)
-	errMsg := Print(err)
+	errMsg := err.Error()
 	assert.Contains(t, errMsg, "Authorization failure")
 }
 

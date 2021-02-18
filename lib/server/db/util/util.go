@@ -17,7 +17,7 @@ import (
 )
 
 var (
-	dbURLRegex = regexp.MustCompile(`(Datasource:\s*)?(\S+):(\S+)@|(Datasource:.*\s)?(user=\S+).*\s(password=\S+)|(Datasource:.*\s)?(password=\S+).*\s(user=\S+)`)
+	dbURLRegex = regexp.MustCompile("(Datasource:\\s*)?(\\S+):(\\S+)@|(Datasource:.*\\s)?(user=\\S+).*\\s(password=\\S+)|(Datasource:.*\\s)?(password=\\S+).*\\s(user=\\S+)")
 )
 
 // Levels contains the levels of identities, affiliations, and certificates
@@ -67,7 +67,7 @@ func MaskDBCred(str string) string {
 				}
 			}
 		}
-		str = str[:matchIdxs[0]] + substr + str[matchIdxs[1]:]
+		str = str[:matchIdxs[0]] + substr + str[matchIdxs[1]:len(str)]
 	}
 	return str
 }
@@ -112,5 +112,5 @@ func GetError(err error, getType string) error {
 
 // IsGetError returns true of if the error is for is a database get error (not found)
 func IsGetError(err error) bool {
-	return strings.Contains(caerrors.Print(err), strconv.Itoa(caerrors.ErrDBGet))
+	return strings.Contains(err.Error(), strconv.Itoa(caerrors.ErrDBGet))
 }

@@ -97,7 +97,7 @@ crlsizelimit: 512000
 #############################################################################
 tls:
   # Enable TLS (default: false)
-  enabled: false
+  enabled: true
   # TLS for the server's listening port
   certfile:
   keyfile:
@@ -109,7 +109,8 @@ tls:
 #  The CA section contains information related to the Certificate Authority
 #  including the name of the CA, which should be unique for all members
 #  of a blockchain network.  It also includes the key and certificate files
-#  used when issuing enrollment certificates (ECerts).
+#  used when issuing enrollment certificates (ECerts) and transaction
+#  certificates (TCerts).
 #  The chainfile (if it exists) contains the certificate chain which
 #  should be trusted for this CA, where the 1st in the chain is always the
 #  root CA certificate.
@@ -139,7 +140,9 @@ crl:
 #  The registry section controls how the fabric-ca-server does two things:
 #  1) authenticates enrollment requests which contain a username and password
 #     (also known as an enrollment ID and secret).
-#  2) once authenticated, retrieves the identity's attribute names and values.
+#  2) once authenticated, retrieves the identity's attribute names and
+#     values which the fabric-ca-server optionally puts into TCerts
+#     which it issues for transacting on the Hyperledger Fabric blockchain.
 #     These attributes are useful for making access control decisions in
 #     chaincode.
 #  There are two main configuration options:
@@ -337,7 +340,7 @@ signing:
 csr:
    cn: <<<COMMONNAME>>>
    keyrequest:
-     algo: ecdsa
+     algo: gmsm2
      size: 256
    names:
       - C: US
@@ -381,9 +384,9 @@ idemix:
 # crypto library implementation to use
 #############################################################################
 bccsp:
-    default: SW
-    sw:
-        hash: SHA2
+    default: GM
+    gm:
+        hash: GMSM3
         security: 256
         filekeystore:
             # The directory used for the software file-based keystore

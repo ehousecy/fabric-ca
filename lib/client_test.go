@@ -10,7 +10,6 @@ import (
 	"bytes"
 	"fmt"
 	"io/ioutil"
-	"net/http"
 	"os"
 	"path"
 	"path/filepath"
@@ -24,21 +23,29 @@ import (
 	. "github.com/hyperledger/fabric-ca/lib"
 	"github.com/hyperledger/fabric-ca/lib/attrmgr"
 	"github.com/hyperledger/fabric-ca/lib/client/credential/x509"
-	"github.com/hyperledger/fabric-ca/lib/tls"
+	"github.com/hyperledger/fabric-ca/lib/gmtls"
 	"github.com/hyperledger/fabric/bccsp"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
+	"github.com/tw-bc-group/net-go-gm/http"
 )
 
 var (
-	ctport1    = 7098
-	ctport2    = 7099
-	intCAPort  = 7080
-	tdDir      = "../testdata"
-	cfgFile    = path.Join(tdDir, "config.json")
-	csrFile    = path.Join(tdDir, "csr.json")
-	serversDir = "testservers"
-	adminID    *Identity
+	ctport1     = 7098
+	ctport2     = 7099
+	intCAPort   = 7080
+	tdDir       = "../testdata"
+	fcaDB       = path.Join(tdDir, "fabric-ca-server.db")
+	fcaDB2      = path.Join(tdDir, "fabric-ca.db")
+	cfgFile     = path.Join(tdDir, "config.json")
+	testCfgFile = "testconfig.json"
+	csrFile     = path.Join(tdDir, "csr.json")
+	serversDir  = "testservers"
+	adminID     *Identity
+)
+
+const (
+	DefaultCA = ""
 )
 
 func TestClientConfigStat(t *testing.T) {
@@ -523,6 +530,11 @@ func testRegister(c *Client, t *testing.T) {
 		t.Fatal("No ECert was returned")
 	}
 
+	_, err = id.GetTCertBatch(&api.GetTCertBatchRequest{Count: 1})
+	if err != nil {
+		t.Fatal("Failed to get batch of TCerts")
+	}
+
 	// Test registration and enrollment of an identity with attributes
 	userName := "MyTestUserWithAttrs"
 	registerReq = &api.RegistrationRequest{
@@ -694,7 +706,7 @@ func testEnrollMiscFailures(c *Client, t *testing.T) {
 
 	c.Config.URL = ""
 	var r api.CSRInfo
-	var k api.KeyRequest
+	var k api.BasicKeyRequest
 	var n csr.Name
 	k.Algo = "dsa"
 	k.Size = 256
@@ -735,7 +747,7 @@ func testReenroll(c *Client, t *testing.T) {
 	}
 	eresp, err := id.Reenroll(&api.ReenrollmentRequest{
 		CSR: &api.CSRInfo{
-			KeyRequest: &api.KeyRequest{
+			KeyRequest: &api.BasicKeyRequest{
 				ReuseKey: false,
 			},
 		},
@@ -763,7 +775,7 @@ func testReenroll(c *Client, t *testing.T) {
 	originalKey = newKey
 	eresp, err = id.Reenroll(&api.ReenrollmentRequest{
 		CSR: &api.CSRInfo{
-			KeyRequest: &api.KeyRequest{
+			KeyRequest: &api.BasicKeyRequest{
 				ReuseKey: true,
 			},
 		},
@@ -1450,7 +1462,7 @@ func TestGenCSR(t *testing.T) {
 	// Fail to gen key
 	config.CSR = api.CSRInfo{
 		CN: "TestGenCSR",
-		KeyRequest: &api.KeyRequest{
+		KeyRequest: &api.BasicKeyRequest{
 			Algo: "dsa",
 			Size: 256,
 		},
@@ -1625,7 +1637,7 @@ func TestRevokedIdentity(t *testing.T) {
 
 	// Bad TLS
 	c.Config.MSPDir = "msp"
-	var kc tls.KeyCertFiles
+	var kc gmtls.KeyCertFiles
 	kc.KeyFile = "../testdata/ec_key.pem"
 	kc.CertFile = "../testdata/expiredcert.pem"
 	c.Config.MSPDir = ""
@@ -1779,5 +1791,9 @@ func testWhenServerIsDown(c *Client, t *testing.T) {
 	_, err = id.Register(registration)
 	if err == nil {
 		t.Error("Register while server is down should have failed")
+	}
+	_, err = id.GetTCertBatch(&api.GetTCertBatchRequest{Count: 1})
+	if err == nil {
+		t.Error("GetTCertBatch while server is down should have failed")
 	}
 }

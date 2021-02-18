@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net"
-	"net/http"
 	"net/url"
 	"os"
 	"path"
@@ -25,20 +24,22 @@ import (
 	cfsslapi "github.com/cloudflare/cfssl/api"
 	"github.com/cloudflare/cfssl/csr"
 	"github.com/cloudflare/cfssl/log"
-	proto "github.com/golang/protobuf/proto"
+	"github.com/golang/protobuf/proto"
 	fp256bn "github.com/hyperledger/fabric-amcl/amcl/FP256BN"
 	"github.com/hyperledger/fabric-ca/internal/pkg/api"
 	"github.com/hyperledger/fabric-ca/internal/pkg/util"
 	"github.com/hyperledger/fabric-ca/lib/client/credential"
 	idemixcred "github.com/hyperledger/fabric-ca/lib/client/credential/idemix"
 	x509cred "github.com/hyperledger/fabric-ca/lib/client/credential/x509"
+	"github.com/hyperledger/fabric-ca/lib/gmsigner"
+	"github.com/hyperledger/fabric-ca/lib/gmtls"
 	"github.com/hyperledger/fabric-ca/lib/streamer"
-	"github.com/hyperledger/fabric-ca/lib/tls"
 	"github.com/hyperledger/fabric/bccsp"
 	cspsigner "github.com/hyperledger/fabric/bccsp/signer"
 	"github.com/hyperledger/fabric/idemix"
 	"github.com/mitchellh/mapstructure"
 	"github.com/pkg/errors"
+	"github.com/tw-bc-group/net-go-gm/http"
 )
 
 // Client is the fabric-ca client object
@@ -149,17 +150,17 @@ func (c *Client) initHTTPClient() error {
 	if c.Config.TLS.Enabled {
 		log.Info("TLS Enabled")
 
-		err := tls.AbsTLSClient(&c.Config.TLS, c.HomeDir)
+		err := gmtls.AbsTLSClient(&c.Config.TLS, c.HomeDir)
 		if err != nil {
 			return err
 		}
 
-		tlsConfig, err2 := tls.GetClientTLSConfig(&c.Config.TLS, c.csp)
+		tlsConfig, err2 := gmtls.GetClientTLSConfig(&c.Config.TLS, c.csp)
 		if err2 != nil {
 			return fmt.Errorf("Failed to get client TLS config: %s", err2)
 		}
 		// set the default ciphers
-		tlsConfig.CipherSuites = tls.DefaultCipherSuites
+		tlsConfig.CipherSuites = gmtls.DefaultCipherSuites
 		tr.TLSClientConfig = tlsConfig
 	}
 	c.httpClient = &http.Client{Transport: tr}
@@ -209,7 +210,14 @@ func (c *Client) GenCSR(req *api.CSRInfo, id string) ([]byte, bccsp.Key, error) 
 		return nil, nil, err
 	}
 
-	csrPEM, err := csr.Generate(cspSigner, cr)
+	var csrPEM []byte
+
+	if req.KeyRequest.Algo == "gmsm2" {
+		csrPEM, err = gmsigner.GenerateGMCsr(cspSigner, cr)
+	} else {
+		csrPEM, err = csr.Generate(cspSigner, cr)
+	}
+
 	if err != nil {
 		log.Debugf("failed generating CSR: %s", err)
 		return nil, nil, err
@@ -392,7 +400,8 @@ func (c *Client) handleIdemixEnroll(req *api.EnrollmentRequest) (*EnrollmentResp
 	nonce := fp256bn.FromBytes(nonceBytes)
 	log.Infof("Successfully got nonce from CA %s", req.CAName)
 
-	ipkBytes, err := util.B64Decode(result.CAInfo.IssuerPublicKey)
+	ipkBytes := []byte{}
+	ipkBytes, err = util.B64Decode(result.CAInfo.IssuerPublicKey)
 	if err != nil {
 		return nil, errors.WithMessage(err, fmt.Sprintf("Failed to decode issuer public key that was returned by CA %s", req.CAName))
 	}
@@ -549,9 +558,9 @@ func (c *Client) newCertificateRequest(req *api.CSRInfo, id string) *csr.Certifi
 
 		keyRequest := req.KeyRequest
 		if keyRequest == nil || (keyRequest.Size == 0 && keyRequest.Algo == "") {
-			keyRequest = api.NewKeyRequest()
+			keyRequest = api.NewBasicKeyRequest()
 		}
-		cr.KeyRequest = newCfsslKeyRequest(keyRequest)
+		cr.KeyRequest = newCfsslBasicKeyRequest(keyRequest)
 
 		return cr
 	}
@@ -562,7 +571,7 @@ func (c *Client) newCertificateRequest(req *api.CSRInfo, id string) *csr.Certifi
 		cr.Hosts = []string{hostname}
 	}
 
-	cr.KeyRequest = newCfsslKeyRequest(api.NewKeyRequest())
+	cr.KeyRequest = newCfsslBasicKeyRequest(api.NewBasicKeyRequest())
 
 	return cr
 }
@@ -585,7 +594,7 @@ func (c *Client) newIdemixCredentialRequest(nonce *fp256bn.BIG, ipkBytes []byte)
 
 func (c *Client) getIssuerPubKey(ipkBytes []byte) (*idemix.IssuerPublicKey, error) {
 	var err error
-	if len(ipkBytes) == 0 {
+	if ipkBytes == nil || len(ipkBytes) == 0 {
 		ipkBytes, err = ioutil.ReadFile(c.ipkFile)
 		if err != nil {
 			return nil, errors.Wrapf(err, "Error reading CA's Idemix public key at '%s'", c.ipkFile)
@@ -790,7 +799,7 @@ func (c *Client) SendReq(req *http.Request, result interface{}) (err error) {
 		log.Debugf("Received response\n%s", util.HTTPResponseToString(resp))
 	}
 	var body *cfsslapi.Response
-	if len(respBody) > 0 {
+	if respBody != nil && len(respBody) > 0 {
 		body = new(cfsslapi.Response)
 		err = json.Unmarshal(respBody, body)
 		if err != nil {
@@ -951,7 +960,7 @@ func (c *Client) verifyIdemixCredential() error {
 	return nil
 }
 
-func newCfsslKeyRequest(bkr *api.KeyRequest) *csr.KeyRequest {
+func newCfsslBasicKeyRequest(bkr *api.BasicKeyRequest) *csr.KeyRequest {
 	return &csr.KeyRequest{A: bkr.Algo, S: bkr.Size}
 }
 

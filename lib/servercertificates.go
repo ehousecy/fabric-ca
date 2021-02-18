@@ -34,8 +34,9 @@ func newCertificateEndpoint(s *Server) *serverEndpoint {
 }
 
 func certificatesHandler(ctx *serverRequestContextImpl) (interface{}, error) {
+	var err error
 	// Process Request
-	err := processCertificateRequest(ctx)
+	err = processCertificateRequest(ctx)
 	if err != nil {
 		return nil, err
 	}

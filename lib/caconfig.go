@@ -7,15 +7,16 @@ SPDX-License-Identifier: Apache-2.0
 package lib
 
 import (
+	"github.com/hyperledger/fabric-ca/lib/tls"
 	"time"
 
 	"github.com/cloudflare/cfssl/config"
 	"github.com/hyperledger/fabric-ca/internal/pkg/api"
 	"github.com/hyperledger/fabric-ca/internal/pkg/util"
+	"github.com/hyperledger/fabric-ca/lib/gmtls"
 	dbutil "github.com/hyperledger/fabric-ca/lib/server/db/util"
 	"github.com/hyperledger/fabric-ca/lib/server/idemix"
 	"github.com/hyperledger/fabric-ca/lib/server/ldap"
-	"github.com/hyperledger/fabric-ca/lib/tls"
 	"github.com/hyperledger/fabric/bccsp/factory"
 )
 
@@ -165,7 +166,7 @@ type ParentServer struct {
 // enrollment request for an intermetiate CA
 type IntermediateCA struct {
 	ParentServer ParentServer
-	TLS          tls.ClientTLSConfig
+	TLS          gmtls.ClientTLSConfig
 	Enrollment   api.EnrollmentRequest
 }
 

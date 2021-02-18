@@ -12,94 +12,25 @@ See [User's Guide for Fabric CA](https://hyperledger-fabric-ca.readthedocs.io) f
 * docker-compose version 1.11 or later
 * A Linux Foundation ID  (see [create a Linux Foundation ID](https://identity.linuxfoundation.org/))
 
-
-## Contribution guidelines
-
-You are welcome to contribute to Fabric CA!
-
-The following are guidelines to follow when contributing:
-
-1. See the general information about [contributing to fabric](http://hyperledger-fabric.readthedocs.io/en/latest/CONTRIBUTING.html).
-
-2. To run the unit tests manually:
-
-   ```
-   # cd $GOPATH/src/github.com/hyperledger/fabric-ca
-   # make unit-tests
-   ```
-
-   The test coverage for each package must be 75% or greater.  If this fails due to insufficient test coverage, then you can run `gencov` to get a coverage report to see what code is not being tested.   Once you have added additional test cases, you can run `go test -cover` in the appropriate package to see the current coverage level.
-
-   WARNING: Running the unit-tests may fail due to too many open file descriptors.
-   Depending on where the failure occurs, the error message may not be obvious and may only say something similar to "unable to open database file".
-   Depending on the settings on your host, you may need to increase the maximum number of open file descriptors.
-   For example, the OSX default per-process maximum number of open file descriptors is 256.
-   You may issue the following command to display your current setting:
-
-   ```
-   # ulimit -n
-   256
-   ```
-
-   And the following command will increase this setting to 65536:
-
-   ```
-   # ulimit -n 65536
-   ```
-
-   Please note that this change is only temporary. To make it permanent, you will need to consult the documentation for your host operating system.
-
-## Package overview
-
-1. **cmd/fabric-ca-server** contains the main for the fabric-ca-server command.
-2. **cmd/fabric-ca-client** contains the main for the fabric-ca-client command.
-3. **lib** contains most of the code.
-   a) **server.go** contains the main Server object, which is configured by **serverconfig.go**.
-   b) **client.go** contains the main Client object, which is configured by **clientconfig.go**.
-4. **util/csp.go** contains the Crypto Service Provider implementation.
-5. **lib/dbutil** contains database utility functions.
-6. **lib/ldap** contains LDAP client code.
-7. **lib/spi** contains Service Provider Interface code for the user registry.
-8. **lib/tls** contains TLS related code for server and client.
-9. **util** contains various utility functions.
-
-## Additional info
-
-### FVT
-
-See [FVT tests](scripts/fvt/README.md) for information on functional verification test cases.
-
-
-### Updating the cfssl vendored package
-Following are the steps to update cfssl package using version 1.0.8 of govendor tool.
-
-* Remove cfssl from vendor folder
-   * cd $GOPATH/src/github.com/hyperledger/fabric-ca/vendor
-   * govendor remove github.com/cloudflare/cfssl/...
-   * rm -rf github.com/cloudflare/cfssl/
-
-* Clone cfssl repo
-   * cd $GOPATH/src/github.com/
-   * mkdir cloudflare
-   * cd cloudflare
-   * git clone https://github.com/cloudflare/cfssl.git
-
-* Add cfssl from $GOPATH to the vendor folder
-   * cd $GOPATH/src/github.com/hyperledger/fabric-ca/vendor
-   * govendor add github.com/cloudflare/cfssl/^
-   * You can optionally specify revision or tag to add a particular revision of code to the vendor folder
-      * govendor add github.com/cloudflare/cfssl/^@abc12032
-
-* Remove sqlx package from cfssl vendor folder. This is because certsql.NewAccessor (called by fabric-ca) requires sqlx.db object to be passed from the same package. If we were to have sqlx package both in fabric-ca and cfssl vendor folder, go compiler will throw an error
-   * rm -rf github.com/cloudflare/cfssl/vendor/github.com/jmoiron/sqlx
-
-* Remove the packages that are added to the fabric-ca vendor folder that are not needed by fabric-ca
-
-## Continuous Integration
-
-Please have a look at [Continuous Integration Process](docs/source/ca-ci.md)
-
-
-## License <a name="license"></a>
-
-Hyperledger Project source code files are made available under the Apache License, Version 2.0 (Apache-2.0), located in the [LICENSE](LICENSE) file. Hyperledger Project documentation files are made available under the Creative Commons Attribution 4.0 International License (CC-BY-4.0), available at http://creativecommons.org/licenses/by/4.0/.
+-[ ] 切入场景
+ -[ ] 本地使用国密ca证书和私钥启动fabric-ca-server
+   -[ ] 参数
+    ```
+   #环境变量
+   FABRIC_CA_HOME=/etc/hyperledger/fabric-ca-server;FABRIC_CA_SERVER_CA_NAME=ca-org1;FABRIC_CA_SERVER_TLS_ENABLED=true;FABRIC_CA_SERVER_TLS_CERTFILE=/opt/goworkspace/src/github.com/hyperledger/fabric-samples/test-network/organizations/peerOrganizations/org1.example.com/ca/ca.org1.example.com-cert.pem;FABRIC_CA_SERVER_TLS_KEYFILE=/opt/goworkspace/src/github.com/hyperledger/fabric-samples/test-network/organizations/peerOrganizations/org1.example.com/ca/priv_sk;FABRIC_CA_SERVER_PORT=7054
+   #命令行启动参数
+   start --ca.certfile /opt/goworkspace/src/github.com/hyperledger/fabric-samples/test-network/organizations/peerOrganizations/org1.example.com/ca/ca.org1.example.com-cert.pem --ca.keyfile /opt/goworkspace/src/github.com/hyperledger/fabric-samples/test-network/organizations/peerOrganizations/org1.example.com/ca/priv_sk -b admin:adminpw
+    ```
+## 常见错误
+```
+Error: Validation of certificate and key failed: Invalid certificate in file '/opt/goworkspace/src/github.com/hyperledger/fabric-samples/test-network/organizations/peerOrganizations/org1.example.com/ca/ca.org1.example.com-cert.pem': Error parsing certificate: x509: unsupported elliptic curve
+解决方案：validateCertAndKey 修改证书转换方案以支持sm2.Ceritficate
+```
+```
+Failed parsing EC private key: x509: failed to parse EC private key embedded in PKCS#8: x509: unknown elliptic curve
+解决方案：通过curve做适配
+```
+```
+ Could not find the private key in BCCSP keystore nor in keyfile '/opt/goworkspace/src/github.com/hyperledger/fabric-samples/test-network/organizations/peerOrganizations/org1.example.com/ca/priv_sk': Failed parsing private key from /opt/goworkspace/src/github.com/hyperledger/fabric-samples/test-network/organizations/peerOrganizations/org1.example.com/ca/priv_sk: Invalid key type. The DER must contain an rsa.PrivateKey or ecdsa.PrivateKey
+解决方案：bccsp添加密钥支持
+ ```

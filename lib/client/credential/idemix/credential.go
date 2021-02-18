@@ -9,7 +9,7 @@ package idemix
 import (
 	"encoding/json"
 	"fmt"
-	"net/http"
+	"github.com/tw-bc-group/net-go-gm/http"
 
 	"github.com/cloudflare/cfssl/log"
 	"github.com/golang/protobuf/proto"
@@ -17,7 +17,7 @@ import (
 	"github.com/hyperledger/fabric-ca/internal/pkg/api"
 	"github.com/hyperledger/fabric-ca/internal/pkg/util"
 	"github.com/hyperledger/fabric/bccsp"
-	idemix "github.com/hyperledger/fabric/idemix"
+	"github.com/hyperledger/fabric/idemix"
 	"github.com/pkg/errors"
 )
 
@@ -163,9 +163,6 @@ func (cred *Credential) CreateToken(req *http.Request, reqBody []byte) (string, 
 		return "", errors.Wrapf(err, "Failed to create signature while creating token")
 	}
 	sigBytes, err := proto.Marshal(sig)
-	if err != nil {
-		return "", err
-	}
 	token := "idemix." + api.IdemixTokenVersion1 + "." + enrollmentID + "." + util.B64Encode(sigBytes)
 	return token, nil
 }

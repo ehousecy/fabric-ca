@@ -62,21 +62,18 @@ func TestGetCertificatesDB(t *testing.T) {
 	rows, err := ca.certDBAccessor.GetCertificates(certReq, "")
 	assert.NoError(t, err, "Failed to get certificates from database")
 	certs, err := readRows(rows)
-	assert.NoError(t, err)
 	assert.Equal(t, "testCertificate1", certs[0].Subject.CommonName)
 
 	certReq = getCertReq("", "1111", "", false, false, nil, nil, nil, nil)
 	rows, err = ca.certDBAccessor.GetCertificates(certReq, "")
 	assert.NoError(t, err, "Failed to get certificates from database")
 	certs, err = readRows(rows)
-	assert.NoError(t, err)
 	assert.Equal(t, big.NewInt(1111), certs[0].SerialNumber)
 
 	certReq = getCertReq("", "", "9876", false, false, nil, nil, nil, nil)
 	rows, err = ca.certDBAccessor.GetCertificates(certReq, "")
 	assert.NoError(t, err, "Failed to get certificates from database")
 	certs, err = readRows(rows)
-	assert.NoError(t, err)
 	assert.Equal(t, 2, len(certs))
 	assert.Equal(t, []byte("9876"), certs[0].AuthorityKeyId)
 
@@ -84,21 +81,18 @@ func TestGetCertificatesDB(t *testing.T) {
 	rows, err = ca.certDBAccessor.GetCertificates(certReq, "")
 	assert.NoError(t, err, "Failed to get certificates from database")
 	certs, err = readRows(rows)
-	assert.NoError(t, err)
 	assert.Equal(t, 5, len(certs))
 
 	certReq = getCertReq("", "", "", false, true, nil, nil, nil, nil)
 	rows, err = ca.certDBAccessor.GetCertificates(certReq, "")
 	assert.NoError(t, err, "Failed to get certificates from database")
 	certs, err = readRows(rows)
-	assert.NoError(t, err)
 	assert.Equal(t, 6, len(certs))
 
 	certReq = getCertReq("", "1111", "", false, false, nil, nil, nil, nil)
 	rows, err = ca.certDBAccessor.GetCertificates(certReq, "dept1")
 	assert.NoError(t, err, "Failed to get certificates from database")
 	certs, err = readRows(rows)
-	assert.NoError(t, err)
 	assert.Equal(t, 1, len(certs))
 	assert.Equal(t, "testCertificate1", certs[0].Subject.CommonName)
 
@@ -106,7 +100,6 @@ func TestGetCertificatesDB(t *testing.T) {
 	rows, err = ca.certDBAccessor.GetCertificates(certReq, "")
 	assert.NoError(t, err, "Failed to get certificates from database")
 	certs, err = readRows(rows)
-	assert.NoError(t, err)
 	assert.Equal(t, 1, len(certs))
 	assert.Equal(t, "testCertificate3", certs[0].Subject.CommonName)
 
@@ -115,7 +108,6 @@ func TestGetCertificatesDB(t *testing.T) {
 	rows, err = ca.certDBAccessor.GetCertificates(certReq, "")
 	assert.NoError(t, err, "Failed to get certificates from database")
 	certs, err = readRows(rows)
-	assert.NoError(t, err)
 	assert.Equal(t, 1, len(certs))
 	assert.Equal(t, "revoked1", certs[0].Subject.CommonName)
 
@@ -124,7 +116,6 @@ func TestGetCertificatesDB(t *testing.T) {
 	rows, err = ca.certDBAccessor.GetCertificates(certReq, "")
 	assert.NoError(t, err, "Failed to get certificates from database")
 	certs, err = readRows(rows)
-	assert.NoError(t, err)
 	assert.Equal(t, 2, len(certs))
 
 	revokedStart = time.Date(2017, time.January, 1, 0, 0, 0, 0, time.UTC)
@@ -133,7 +124,6 @@ func TestGetCertificatesDB(t *testing.T) {
 	rows, err = ca.certDBAccessor.GetCertificates(certReq, "")
 	assert.NoError(t, err, "Failed to get certificates from database")
 	certs, err = readRows(rows)
-	assert.NoError(t, err)
 	assert.Equal(t, 1, len(certs))
 	assert.Equal(t, "revoked2", certs[0].Subject.CommonName)
 
@@ -142,17 +132,14 @@ func TestGetCertificatesDB(t *testing.T) {
 	rows, err = ca.certDBAccessor.GetCertificates(certReq, "")
 	assert.NoError(t, err, "Failed to get certificates from database")
 	certs, err = readRows(rows)
-	assert.NoError(t, err)
 	assert.Equal(t, 6, len(certs))
 
 	dur, err := time.ParseDuration("+100h")
-	assert.NoError(t, err)
 	expiredEnd := time.Now().Add(dur).UTC()
 	certReq = getCertReq("", "", "", false, false, nil, nil, nil, &expiredEnd)
 	rows, err = ca.certDBAccessor.GetCertificates(certReq, "")
 	assert.NoError(t, err, "Failed to get certificates from database")
 	certs, err = readRows(rows)
-	assert.NoError(t, err)
 	assert.Equal(t, 7, len(certs))
 
 	expiredStart = time.Date(2017, time.January, 1, 0, 0, 0, 0, time.UTC)
@@ -161,7 +148,6 @@ func TestGetCertificatesDB(t *testing.T) {
 	rows, err = ca.certDBAccessor.GetCertificates(certReq, "")
 	assert.NoError(t, err, "Failed to get certificates from database")
 	certs, err = readRows(rows)
-	assert.NoError(t, err)
 	assert.Equal(t, 1, len(certs))
 	assert.Equal(t, "expire1", certs[0].Subject.CommonName)
 }

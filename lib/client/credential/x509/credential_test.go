@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"crypto/x509"
 	"encoding/hex"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -48,7 +49,7 @@ func TestX509Credential(t *testing.T) {
 
 	client := &lib.Client{
 		Config: &lib.ClientConfig{
-			URL: "http://localhost:7054",
+			URL: fmt.Sprintf("http://localhost:7054"),
 			CSP: &factory.FactoryOpts{
 				SwOpts: &factory.SwOpts{
 					HashFamily: "SHA2",

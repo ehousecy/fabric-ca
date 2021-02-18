@@ -9,7 +9,6 @@ package lib
 import (
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"strconv"
 
 	"github.com/cloudflare/cfssl/log"
@@ -20,6 +19,7 @@ import (
 	"github.com/hyperledger/fabric-ca/lib/client/credential/x509"
 	"github.com/hyperledger/fabric/bccsp"
 	"github.com/pkg/errors"
+	"github.com/tw-bc-group/net-go-gm/http"
 )
 
 // Identity is fabric-ca's implementation of an identity
@@ -81,6 +81,22 @@ func (i *Identity) GetECert() *x509.Signer {
 		}
 	}
 	return nil
+}
+
+// GetTCertBatch returns a batch of TCerts for this identity
+func (i *Identity) GetTCertBatch(req *api.GetTCertBatchRequest) ([]*x509.Signer, error) {
+	reqBody, err := util.Marshal(req, "GetTCertBatchRequest")
+	if err != nil {
+		return nil, err
+	}
+	err = i.Post("tcert", reqBody, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	// Ignore the contents of the response for now.  They will be processed in the future when we need to
+	// support the Go SDK.   We currently have Node and Java SDKs which process this and they are the
+	// priority.
+	return nil, nil
 }
 
 // Register registers a new identity
@@ -503,9 +519,11 @@ func (i *Identity) GetStreamResponse(endpoint string, queryParam map[string]stri
 	if err != nil {
 		return err
 	}
-	for key, value := range queryParam {
-		if value != "" {
-			addQueryParm(req, key, value)
+	if queryParam != nil {
+		for key, value := range queryParam {
+			if value != "" {
+				addQueryParm(req, key, value)
+			}
 		}
 	}
 	err = i.addTokenAuthHdr(req, nil)
@@ -521,8 +539,10 @@ func (i *Identity) Put(endpoint string, reqBody []byte, queryParam map[string]st
 	if err != nil {
 		return err
 	}
-	for key, value := range queryParam {
-		addQueryParm(req, key, value)
+	if queryParam != nil {
+		for key, value := range queryParam {
+			addQueryParm(req, key, value)
+		}
 	}
 	err = i.addTokenAuthHdr(req, reqBody)
 	if err != nil {
@@ -537,8 +557,10 @@ func (i *Identity) Delete(endpoint string, result interface{}, queryParam map[st
 	if err != nil {
 		return err
 	}
-	for key, value := range queryParam {
-		addQueryParm(req, key, value)
+	if queryParam != nil {
+		for key, value := range queryParam {
+			addQueryParm(req, key, value)
+		}
 	}
 	err = i.addTokenAuthHdr(req, nil)
 	if err != nil {
@@ -556,8 +578,10 @@ func (i *Identity) Post(endpoint string, reqBody []byte, result interface{}, que
 	if err != nil {
 		return err
 	}
-	for key, value := range queryParam {
-		addQueryParm(req, key, value)
+	if queryParam != nil {
+		for key, value := range queryParam {
+			addQueryParm(req, key, value)
+		}
 	}
 	err = i.addTokenAuthHdr(req, reqBody)
 	if err != nil {
@@ -568,13 +592,14 @@ func (i *Identity) Post(endpoint string, reqBody []byte, result interface{}, que
 
 func (i *Identity) addTokenAuthHdr(req *http.Request, body []byte) error {
 	log.Debug("Adding token-based authorization header")
-	if len(i.creds) == 0 {
-		return nil
-	}
-	cred := i.creds[0]
-	token, err := cred.CreateToken(req, body)
-	if err != nil {
-		return errors.WithMessage(err, "Failed to add token authorization header")
+	var token string
+	var err error
+	for _, cred := range i.creds {
+		token, err = cred.CreateToken(req, body)
+		if err != nil {
+			return errors.WithMessage(err, "Failed to add token authorization header")
+		}
+		break
 	}
 	req.Header.Set("authorization", token)
 	return nil

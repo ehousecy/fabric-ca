@@ -33,7 +33,6 @@ import (
 func TestCertificatesHandler(t *testing.T) {
 	ctx := new(serverRequestContextImpl)
 	req, err := http.NewRequest("GET", "", bytes.NewReader([]byte{}))
-	assert.NoError(t, err)
 	ctx.req = req
 	_, err = certificatesHandler(ctx)
 	util.ErrorContains(t, err, "No authorization header", "Failed to catch error")
@@ -267,7 +266,7 @@ func TestStoreCert(t *testing.T) {
 	defer os.RemoveAll(dir)
 
 	cd := NewCertificateDecoder(dir)
-	err = cd.storeCert("testID", dir, []byte("testing store cert function"))
+	err = cd.StoreCert("testID", dir, []byte("testing store cert function"))
 	assert.NoError(t, err, "failed to store cert")
 
 	filePath := filepath.Join(dir, "testID.pem")
@@ -277,7 +276,7 @@ func TestStoreCert(t *testing.T) {
 	assert.NoError(t, err, "failed to read certificate file")
 	assert.Equal(t, "testing store cert function", string(cert))
 
-	err = cd.storeCert("testID", dir, []byte("testing store cert function - second cert"))
+	err = cd.StoreCert("testID", dir, []byte("testing store cert function - second cert"))
 	assert.NoError(t, err, "failed to store cert")
 
 	filePath = filepath.Join(dir, "testID-1.pem")
@@ -292,7 +291,7 @@ func TestStoreCert(t *testing.T) {
 	assert.NoError(t, err, "failed to read certificate file")
 	assert.Equal(t, "testing store cert function - second cert", string(cert))
 
-	err = cd.storeCert("testID", dir, []byte("testing store cert function - third cert"))
+	err = cd.StoreCert("testID", dir, []byte("testing store cert function - third cert"))
 	assert.NoError(t, err, "failed to store cert")
 	filePath = filepath.Join(dir, "testID-3.pem")
 	assert.Equal(t, true, util.FileExists(filePath))
@@ -300,6 +299,6 @@ func TestStoreCert(t *testing.T) {
 	// Error case - renaming a certificate file that does not exist should fail
 	cd = NewCertificateDecoder(dir)
 	cd.certIDCount["testID2"] = 1
-	err = cd.storeCert("testID2", dir, []byte("testing store cert function"))
+	err = cd.StoreCert("testID2", dir, []byte("testing store cert function"))
 	util.ErrorContains(t, err, "Failed to rename certificate", "Should have failed")
 }

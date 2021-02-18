@@ -69,6 +69,10 @@ type serverRequestContextImpl struct {
 	callerRoles map[string]bool
 }
 
+const (
+	registrarRole = "hf.Registrar.Roles"
+)
+
 // newServerRequestContext is the constructor for a serverRequestContextImpl
 func newServerRequestContext(r *http.Request, w http.ResponseWriter, se *serverEndpoint) *serverRequestContextImpl {
 	return &serverRequestContextImpl{
@@ -380,7 +384,7 @@ func (ctx *serverRequestContextImpl) ReadBodyBytes() ([]byte, error) {
 	}
 	err := ctx.body.err
 	if err != nil {
-		return nil, caerrors.NewHTTPErr(500, caerrors.ErrReadingReqBody, "Failed reading request body: %s", err)
+		return nil, caerrors.NewHTTPErr(400, caerrors.ErrReadingReqBody, "Failed reading request body: %s", err)
 	}
 	return ctx.body.buf, nil
 }
@@ -481,7 +485,7 @@ func (ctx *serverRequestContextImpl) GetCaller() (user.User, error) {
 func (ctx *serverRequestContextImpl) ContainsAffiliation(affiliation string) error {
 	validAffiliation, err := ctx.containsAffiliation(affiliation)
 	if err != nil {
-		return errors.WithMessage(err, "Failed to validate if caller has authority to act on affiliation")
+		return caerrors.NewHTTPErr(500, caerrors.ErrGettingAffiliation, "Failed to validate if caller has authority to get ID: %s", err)
 	}
 	if !validAffiliation {
 		return caerrors.NewAuthorizationErr(caerrors.ErrCallerNotAffiliated, "Caller does not have authority to act on affiliation '%s'", affiliation)
@@ -556,7 +560,7 @@ func (ctx *serverRequestContextImpl) isRegistrar() (string, bool, error) {
 func (ctx *serverRequestContextImpl) CanActOnType(userType string) error {
 	canAct, err := ctx.canActOnType(userType)
 	if err != nil {
-		return errors.WithMessage(err, "Failed to verify if user can act on type")
+		return caerrors.NewHTTPErr(500, caerrors.ErrGettingType, "Failed to verify if user can act on type '%s': %s", userType, err)
 	}
 	if !canAct {
 		return caerrors.NewAuthorizationErr(caerrors.ErrCallerNotAffiliated, "Registrar does not have authority to act on type '%s'", userType)
@@ -593,21 +597,12 @@ func (ctx *serverRequestContextImpl) canActOnType(requestedType string) (bool, e
 	if requestedType == "" {
 		requestedType = "client"
 	}
-	if !strContained(requestedType, types) {
+	if !util.StrContained(requestedType, types) {
 		log.Debugf("Caller with types '%s' is not authorized to act on '%s'", types, requestedType)
 		return false, nil
 	}
 
 	return true, nil
-}
-
-func strContained(needle string, haystack []string) bool {
-	for _, s := range haystack {
-		if strings.ToLower(s) == strings.ToLower(needle) {
-			return true
-		}
-	}
-	return false
 }
 
 // HasRole returns an error if the caller does not have the attribute or the value is false for a boolean attribute
@@ -640,11 +635,11 @@ func (ctx *serverRequestContextImpl) hasRole(role string) (bool, error) {
 
 	roleAttr, err := caller.GetAttribute(role)
 	if err != nil {
-		return false, caerrors.NewAuthorizationErr(caerrors.ErrInvokerMissAttr, "Invoker does not have following role'%s': '%s'", role, err)
+		return false, err
 	}
 	roleStatus, err = strconv.ParseBool(roleAttr.Value)
 	if err != nil {
-		return false, caerrors.NewHTTPErr(400, caerrors.ErrInvalidBool, "Failed to get boolean value of '%s': '%s'", role, err)
+		return false, errors.Wrap(err, fmt.Sprintf("Failed to get boolean value of '%s'", role))
 	}
 	ctx.callerRoles[role] = roleStatus
 

@@ -42,7 +42,6 @@ func TestGetAllAffiliations(t *testing.T) {
 		Name:   "admin2",
 		Secret: "admin2pw",
 	})
-	assert.NoError(t, err, "failed to enroll admin2")
 
 	admin2 := resp.Identity
 
@@ -75,7 +74,9 @@ func TestGetAllAffiliations(t *testing.T) {
 	util.FatalError(t, err, "Failed to register a user that is not affiliation manager")
 
 	_, err = notAffMgr.GetAllAffiliations("")
-	util.ErrorContains(t, err, "71", "Invalid remote code returned") // Check if remote authorization failure code is returned
+	if assert.Error(t, err, "Should have failed, as the caller does not have the attribute 'hf.AffiliationMgr'") {
+		assert.Contains(t, err.Error(), "User does not have attribute 'hf.AffiliationMgr'")
+	}
 
 	err = srv.Stop()
 	util.FatalError(t, err, "Failed to stop server")
@@ -94,7 +95,7 @@ func TestGetAllAffiliations(t *testing.T) {
 	util.FatalError(t, err, "Failed to enroll user 'admin'")
 	admin = resp.Identity
 
-	_, err = admin.GetAllAffiliations("")
+	getResp, err = admin.GetAllAffiliations("")
 	util.ErrorContains(t, err, "16", "If no affiliations are configured, should throw an error")
 }
 
@@ -123,7 +124,6 @@ func TestGetAffiliation(t *testing.T) {
 		Name:   "admin2",
 		Secret: "admin2pw",
 	})
-	assert.NoError(t, err, "failed to enroll admin2")
 
 	admin2 := resp.Identity
 
@@ -185,7 +185,6 @@ func TestDynamicAddAffiliation(t *testing.T) {
 			},
 		},
 	})
-	assert.NoError(t, err, "failed to register and enroll admin")
 
 	resp, err = client.Enroll(&api.EnrollmentRequest{
 		Name:   "admin2",

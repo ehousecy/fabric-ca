@@ -73,11 +73,16 @@ func TestSQLite(t *testing.T) {
 
 // Truncate truncates the DB
 func Truncate(db *db.DB) {
-	if len(strings.TrimSpace(sqliteTruncateTables)) == 0 {
-		return
-	}
-	if _, err := db.Exec("", sqliteTruncateTables); err != nil {
-		panic(err)
+	var sql []string
+	sql = []string{sqliteTruncateTables}
+
+	for _, expr := range sql {
+		if len(strings.TrimSpace(expr)) == 0 {
+			continue
+		}
+		if _, err := db.Exec("", expr); err != nil {
+			panic(err)
+		}
 	}
 }
 
@@ -233,7 +238,6 @@ func testEverything(ta TestAccessor, t *testing.T) {
 	testUpdateUser(ta, t)
 	testInsertAndGetAffiliation(ta, t)
 	testDeleteAffiliation(ta, t)
-	testInsertAndGetFilteredUsers(ta, t)
 }
 
 func testInsertAndGetUser(ta TestAccessor, t *testing.T) {
@@ -276,127 +280,6 @@ func testInsertAndGetUser(ta TestAccessor, t *testing.T) {
 
 	if user.GetName() != insert.Name {
 		t.Error("Incorrect ID retrieved")
-	}
-}
-
-func testInsertAndGetFilteredUsers(ta TestAccessor, t *testing.T) {
-	t.Log("TestInsertAndGetFilteredUsers")
-	ta.Truncate()
-	// create user
-	insert := cadbuser.Info{
-		Name: "testTypesClient",
-		Pass: "123456",
-		Type: "client",
-		Attributes: []api.Attribute{
-			api.Attribute{
-				Name:  "hf.Registrar.Roles",
-				Value: "peer,client,orderer,user",
-			},
-			api.Attribute{
-				Name:  "hf.Revoker",
-				Value: "false",
-			},
-			api.Attribute{
-				Name:  "hf.Registrar.Attributes",
-				Value: "*",
-			},
-			api.Attribute{
-				Name:  "xyz",
-				Value: "xyz",
-			},
-		},
-	}
-	// insert user
-	err := ta.Accessor.InsertUser(&insert)
-	if err != nil {
-		t.Errorf("Error occured during insert query of ID: %s, error: %s", insert.Name, err)
-	}
-	// test get the user
-	rows, err := ta.Accessor.GetFilteredUsers("", "client,orderer")
-	if err != nil {
-		t.Errorf("Failed to get users by affiliation: %s, and type: %s, error: %s", "", "client,orderer", err)
-	}
-
-	typesClientSuccessFlag := false
-	for rows.Next() {
-		var id cadbuser.Record
-		err := rows.StructScan(&id)
-		if err != nil {
-			t.Errorf("Failed to get read row! error: %s", err)
-		}
-		// get the target user
-		if id.Name == "testTypesClient" && id.Type == "client" {
-			typesClientSuccessFlag = true
-		}
-	}
-	// not success
-	if !typesClientSuccessFlag {
-		t.Errorf("Test InsertAndGetFilteredUsers Failed!")
-	}
-
-	// test type=* and affiliation is not nil
-	// insert affiliation
-	err = ta.Accessor.InsertAffiliation("Bank1", "Banks", 0)
-	if err != nil {
-		t.Errorf("Error occured during insert query of group: %s, error: %s", "Bank1", err)
-	}
-	// change user info
-	insert.Name = "testTypesStar"
-	insert.Type = "*"
-	insert.Affiliation = "Bank1"
-	// insert user
-	err = ta.Accessor.InsertUser(&insert)
-	if err != nil {
-		t.Errorf("Error occured during insert query of ID: %s, error: %s", insert.Name, err)
-	}
-	// test get the user
-	rows, err = ta.Accessor.GetFilteredUsers("Bank1", "*")
-	if err != nil {
-		t.Errorf("Failed to get users by affiliation: %s, and type: %s, error: %s", "Bank1", "*", err)
-	}
-	// use the success flag to tag success
-	affiliationsTypeStarSuccessFlag := false
-	for rows.Next() {
-		var id cadbuser.Record
-		err := rows.StructScan(&id)
-		if err != nil {
-			t.Errorf("Failed to get read row! error: %s", err)
-		}
-		// get the target user
-		if id.Affiliation == "Bank1" && id.Name == "testTypesStar" {
-			affiliationsTypeStarSuccessFlag = true
-		}
-	}
-	// not success
-	if !affiliationsTypeStarSuccessFlag {
-		t.Errorf("Test InsertAndGetFilteredUsers Failed!")
-	}
-
-	// test get all user
-	affiliationsTypeStarSuccessFlag = false
-	typesClientSuccessFlag = false
-	// test get all users
-	rows, err = ta.Accessor.GetFilteredUsers("", "*")
-	if err != nil {
-		t.Errorf("Failed to get users by affiliation: %s, and type: %s, error: %s", "", "*", err)
-	}
-	for rows.Next() {
-		var id cadbuser.Record
-		err := rows.StructScan(&id)
-		if err != nil {
-			t.Errorf("Failed to get read row! error: %s", err)
-		}
-		// get the target user
-		if id.Affiliation == "Bank1" && id.Name == "testTypesStar" {
-			affiliationsTypeStarSuccessFlag = true
-		}
-		if id.Name == "testTypesClient" && id.Type == "client" {
-			typesClientSuccessFlag = true
-		}
-	}
-	// not success
-	if !(affiliationsTypeStarSuccessFlag && typesClientSuccessFlag) {
-		t.Errorf("Test InsertAndGetFilteredUsers Failed!")
 	}
 }
 
@@ -588,7 +471,7 @@ func TestDBErrorMessages(t *testing.T) {
 	expectedErr := "Failed to get %s"
 	_, err = ta.Accessor.GetAffiliation("hyperledger")
 	if assert.Error(t, err, "Should have errored, and not returned any results") {
-		assert.Contains(t, err.Error(), fmt.Sprintf(expectedErr, "affiliation"))
+		assert.Contains(t, err.Error(), fmt.Sprintf(expectedErr, "Affiliation"))
 	}
 
 	_, err = ta.Accessor.GetUser("testuser", []string{})

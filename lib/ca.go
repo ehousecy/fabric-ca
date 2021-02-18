@@ -14,6 +14,10 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	x509GM "github.com/Hyperledger-TWGC/tjfoc-gm/x509"
+	"github.com/hyperledger/fabric-ca/lib/gmca"
+	"github.com/hyperledger/fabric-ca/lib/gmsigner"
+	"github.com/hyperledger/fabric/bccsp/gm"
 	"io/ioutil"
 	"os"
 	"path"
@@ -42,10 +46,11 @@ import (
 	"github.com/hyperledger/fabric-ca/lib/server/db/postgres"
 	"github.com/hyperledger/fabric-ca/lib/server/db/sqlite"
 	dbutil "github.com/hyperledger/fabric-ca/lib/server/db/util"
-	idemix "github.com/hyperledger/fabric-ca/lib/server/idemix"
+	"github.com/hyperledger/fabric-ca/lib/server/idemix"
 	"github.com/hyperledger/fabric-ca/lib/server/ldap"
 	"github.com/hyperledger/fabric-ca/lib/server/user"
 	cadbuser "github.com/hyperledger/fabric-ca/lib/server/user"
+	"github.com/hyperledger/fabric-ca/lib/tcert"
 	"github.com/hyperledger/fabric-ca/lib/tls"
 	"github.com/hyperledger/fabric/bccsp"
 	"github.com/pkg/errors"
@@ -93,6 +98,10 @@ type CA struct {
 	verifyOptions *x509.VerifyOptions
 	// The attribute manager
 	attrMgr *attrmgr.Mgr
+	// The tcert manager for this CA
+	tcertMgr *tcert.Mgr
+	// The key tree
+	keyTree *tcert.KeyTree
 	// The server hosting this CA
 	server *Server
 	// DB levels
@@ -179,6 +188,19 @@ func (ca *CA) init(renew bool) (err error) {
 	}
 	// Create the attribute manager
 	ca.attrMgr = attrmgr.New()
+	// Initialize TCert handling
+	keyfile := ca.Config.CA.Keyfile
+	certfile := ca.Config.CA.Certfile
+	ca.tcertMgr, err = tcert.LoadMgr(keyfile, certfile, ca.csp)
+	if err != nil {
+		return err
+	}
+	// FIXME: The root prekey must be stored persistently in DB and retrieved here if not found
+	rootKey, err := genRootKey(ca.csp)
+	if err != nil {
+		return err
+	}
+	ca.keyTree = tcert.NewKeyTree(ca.csp, rootKey)
 	log.Debug("CA initialization successful")
 	// Successful initialization
 	return nil
@@ -349,7 +371,11 @@ func (ca *CA) getCACert() (cert []byte, err error) {
 			return nil, err
 		}
 		// Call CFSSL to initialize the CA
-		cert, _, err = initca.NewFromSigner(&req, cspSigner)
+		if req.KeyRequest.Algo() == "gmsm2" {
+			cert, _, err = gmca.NewFromSigner(&req, cspSigner)
+		} else {
+			cert, _, err = initca.NewFromSigner(&req, cspSigner)
+		}
 		if err != nil {
 			return nil, errors.WithMessage(err, "Failed to create new CA certificate")
 		}
@@ -469,18 +495,60 @@ func (ca *CA) initConfig() (err error) {
 	return nil
 }
 
+func (ca *CA) getGMVerifyOptions() (*x509GM.VerifyOptions, error) {
+	chain, err := ca.getCAChain()
+	if err != nil {
+		return nil, err
+	}
+	block, rest := pem.Decode(chain)
+	if block == nil {
+		return nil, errors.New("No root certificate was found")
+	}
+	rootCert, err := x509GM.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to parse root certificate: %s", err)
+	}
+	rootPool := x509GM.NewCertPool()
+	rootPool.AddCert(rootCert)
+	var intPool *x509GM.CertPool
+	if len(rest) > 0 {
+		intPool = x509GM.NewCertPool()
+		if !intPool.AppendCertsFromPEM(rest) {
+			return nil, errors.New("Failed to add intermediate PEM certificates")
+		}
+	}
+	return &x509GM.VerifyOptions{
+		Roots:         rootPool,
+		Intermediates: intPool,
+		KeyUsages:     []x509GM.ExtKeyUsage{x509GM.ExtKeyUsageAny},
+	}, nil
+}
+
 // VerifyCertificate verifies that 'cert' was issued by this CA
 // Return nil if successful; otherwise, return an error.
 func (ca *CA) VerifyCertificate(cert *x509.Certificate) error {
-	opts, err := ca.getVerifyOptions()
-	if err != nil {
-		return errors.WithMessage(err, "Failed to get verify options")
+	if gm.IsX509SM2Certificate(cert) {
+		opts, err := ca.getGMVerifyOptions()
+		if err != nil {
+			return errors.WithMessage(err, "Failed to get gm verify options")
+		}
+		_, err = gm.ParseX509Certificate2Sm2(cert).Verify(*opts)
+		if err != nil {
+			return errors.WithMessage(err, "Failed to verify certificate")
+		}
+		return nil
+	} else {
+		opts, err := ca.getVerifyOptions()
+		if err != nil {
+			return errors.WithMessage(err, "Failed to get verify options")
+
+		}
+		_, err = cert.Verify(*opts)
+		if err != nil {
+			return errors.WithMessage(err, "Failed to verify certificate")
+		}
+		return nil
 	}
-	_, err = cert.Verify(*opts)
-	if err != nil {
-		return errors.WithMessage(err, "Failed to verify certificate")
-	}
-	return nil
 }
 
 // Get the options to verify
@@ -765,22 +833,22 @@ func (ca *CA) loadAffiliationsTableR(val interface{}, parentPath string) (err er
 	if val == nil {
 		return nil
 	}
-	switch val := val.(type) {
+	switch val.(type) {
 	case string:
-		path = affiliationPath(val, parentPath)
+		path = affiliationPath(val.(string), parentPath)
 		err = ca.addAffiliation(path, parentPath)
 		if err != nil {
 			return err
 		}
 	case []string:
-		for _, ele := range val {
+		for _, ele := range val.([]string) {
 			err = ca.loadAffiliationsTableR(ele, parentPath)
 			if err != nil {
 				return err
 			}
 		}
 	case []interface{}:
-		for _, ele := range val {
+		for _, ele := range val.([]interface{}) {
 			err = ca.loadAffiliationsTableR(ele, parentPath)
 			if err != nil {
 				return err
@@ -866,7 +934,7 @@ func (ca *CA) GetDB() db.FabricCADB {
 func (ca *CA) GetCertificate(serial, aki string) (*certdb.CertificateRecord, error) {
 	certs, err := ca.CertDBAccessor().GetCertificate(serial, aki)
 	if err != nil {
-		return nil, err
+		return nil, caerrors.NewHTTPErr(500, caerrors.ErrCertNotFound, "Failed searching certificates: %s", err)
 	}
 	if len(certs) == 0 {
 		return nil, caerrors.NewAuthenticationErr(caerrors.ErrCertNotFound, "Certificate not found with AKI '%s' and serial '%s'", aki, serial)
@@ -1035,24 +1103,33 @@ func (ca *CA) validateCertAndKey(certFile string, keyFile string) error {
 }
 
 // Returns expiration of the CA certificate
-func (ca *CA) getCACertExpiry() (time.Time, time.Time, error) {
-	var notAfter time.Time
-	var notBefore time.Time
-	signer, ok := ca.enrollSigner.(*cflocalsigner.Signer)
-	if ok {
+func (ca *CA) getCACertExpiry() (time.Time, error) {
+	var caexpiry time.Time
+	signer, ok := ca.enrollSigner.(*gmsigner.GMSigner)
+	if !ok {
+		signer, ok := ca.enrollSigner.(*cflocalsigner.Signer)
+		if ok {
+			cacert, err := signer.Certificate("", "ca")
+			if err != nil {
+				log.Errorf("Failed to get CA certificate for CA %s: %s", ca.Config.CA.Name, err)
+				return caexpiry, err
+			} else if cacert != nil {
+				caexpiry = cacert.NotAfter
+			}
+		} else {
+			log.Errorf("Not expected condition as the enrollSigner can only be cfssl/signer/local/Signer")
+			return caexpiry, errors.New("Unexpected error while getting CA certificate expiration")
+		}
+	} else {
 		cacert, err := signer.Certificate("", "ca")
 		if err != nil {
 			log.Errorf("Failed to get CA certificate for CA %s: %s", ca.Config.CA.Name, err)
-			return notBefore, notAfter, err
+			return caexpiry, err
 		} else if cacert != nil {
-			notAfter = cacert.NotAfter
-			notBefore = cacert.NotBefore
+			caexpiry = cacert.NotAfter
 		}
-	} else {
-		log.Errorf("Not expected condition as the enrollSigner can only be cfssl/signer/local/Signer")
-		return notBefore, notAfter, errors.New("Unexpected error while getting CA certificate expiration")
 	}
-	return notBefore, notAfter, nil
+	return caexpiry, nil
 }
 
 func canSignCRL(cert *x509.Certificate) bool {
@@ -1138,23 +1215,24 @@ func validateMatchingKeys(cert *x509.Certificate, keyFile string) error {
 	}
 
 	pubKey := cert.PublicKey
-	switch pubKey := pubKey.(type) {
+	switch pubKey.(type) {
 	case *rsa.PublicKey:
 		privKey, err := util.GetRSAPrivateKey(keyPEM)
 		if err != nil {
 			return err
 		}
 
-		if privKey.PublicKey.N.Cmp(pubKey.N) != 0 {
+		if privKey.PublicKey.N.Cmp(pubKey.(*rsa.PublicKey).N) != 0 {
 			return errors.New("Public key and private key do not match")
 		}
+		//TODO: matrix
 	case *ecdsa.PublicKey:
 		privKey, err := util.GetECPrivateKey(keyPEM)
 		if err != nil {
 			return err
 		}
 
-		if privKey.PublicKey.X.Cmp(pubKey.X) != 0 {
+		if privKey.PublicKey.X.Cmp(pubKey.(*ecdsa.PublicKey).X) != 0 {
 			return errors.New("Public key and private key do not match")
 		}
 	}
@@ -1257,6 +1335,12 @@ func initSigningProfile(spp **config.SigningProfile, expiry time.Duration, isCA 
 	}
 	// This is set so that all profiles permit an attribute extension in CFSSL
 	sp.ExtensionWhitelist[attrmgr.AttrOIDString] = true
+}
+
+type wallClock struct{}
+
+func (wc wallClock) Now() time.Time {
+	return time.Now()
 }
 
 func getMigrator(driverName string, tx cadb.FabricCATx, curLevels, srvLevels *dbutil.Levels) (cadb.Migrator, error) {

@@ -8,6 +8,7 @@ package idemix_test
 
 import (
 	"bytes"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -36,7 +37,7 @@ func TestIdemixCredential(t *testing.T) {
 	signerConfig := filepath.Join(clientHome, "SignerConfig")
 	client := &lib.Client{
 		Config: &lib.ClientConfig{
-			URL: "http://localhost:7054",
+			URL: fmt.Sprintf("http://localhost:7054"),
 		},
 		HomeDir: clientHome,
 	}

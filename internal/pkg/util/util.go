@@ -1,7 +1,17 @@
 /*
-Copyright IBM Corp. All Rights Reserved.
+Copyright IBM Corp. 2016 All Rights Reserved.
 
-SPDX-License-Identifier: Apache-2.0
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+		 http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
 */
 
 package util
@@ -15,11 +25,13 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"github.com/Hyperledger-TWGC/tjfoc-gm/sm2"
+	x509GM "github.com/Hyperledger-TWGC/tjfoc-gm/x509"
+	"github.com/hyperledger/fabric/bccsp/gm"
 	"io"
 	"io/ioutil"
 	"math/big"
 	mrand "math/rand"
-	"net/http"
 	"net/url"
 	"os"
 	"path"
@@ -31,11 +43,12 @@ import (
 	"time"
 
 	"github.com/cloudflare/cfssl/log"
-	"github.com/hyperledger/fabric-ca/lib/caerrors"
 	"github.com/hyperledger/fabric/bccsp"
 	"github.com/pkg/errors"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
+	"github.com/tw-bc-group/net-go-gm/http"
+	"golang.org/x/crypto/ocsp"
 )
 
 var (
@@ -51,11 +64,30 @@ const (
 	letterIdxMax  = 63 / letterIdxBits   // # of letter indices fitting in 63 bits
 )
 
+// RevocationReasonCodes is a map between string reason codes to integers as defined in RFC 5280
+var RevocationReasonCodes = map[string]int{
+	"unspecified":          ocsp.Unspecified,
+	"keycompromise":        ocsp.KeyCompromise,
+	"cacompromise":         ocsp.CACompromise,
+	"affiliationchanged":   ocsp.AffiliationChanged,
+	"superseded":           ocsp.Superseded,
+	"cessationofoperation": ocsp.CessationOfOperation,
+	"certificatehold":      ocsp.CertificateHold,
+	"removefromcrl":        ocsp.RemoveFromCRL,
+	"privilegewithdrawn":   ocsp.PrivilegeWithdrawn,
+	"aacompromise":         ocsp.AACompromise,
+}
+
 // SecretTag to tag a field as secret as in password, token
 const SecretTag = "mask"
 
 // URLRegex is the regular expression to check if a value is an URL
-var URLRegex = regexp.MustCompile(`(ldap|http)s*://(\S+):(\S+)@`)
+var URLRegex = regexp.MustCompile("(ldap|http)s*://(\\S+):(\\S+)@")
+
+//ECDSASignature forms the structure for R and S value for ECDSA
+type ECDSASignature struct {
+	R, S *big.Int
+}
 
 // RandomString returns a random string
 func RandomString(n int) string {
@@ -74,6 +106,18 @@ func RandomString(n int) string {
 	}
 
 	return string(b)
+}
+
+// RemoveQuotes removes outer quotes from a string if necessary
+func RemoveQuotes(str string) string {
+	if str == "" {
+		return str
+	}
+	if (strings.HasPrefix(str, "'") && strings.HasSuffix(str, "'")) ||
+		(strings.HasPrefix(str, "\"") && strings.HasSuffix(str, "\"")) {
+		str = str[1 : len(str)-1]
+	}
+	return str
 }
 
 // ReadFile reads a file
@@ -160,9 +204,41 @@ func CreateToken(csp bccsp.BCCSP, cert []byte, key bccsp.Key, method, uri string
 		if err != nil {
 			return "", err
 		}
+	case *sm2.PublicKey:
+		token, err = GenECDSAToken(csp, cert, key, method, uri, body)
+		if err != nil {
+			return "", err
+		}
+	default:
+		log.Debugf("publicKey=%T", publicKey)
 	}
 	return token, nil
 }
+
+//GenRSAToken signs the http body and cert with RSA using RSA private key
+// @csp : BCCSP instance
+/*
+func GenRSAToken(csp bccsp.BCCSP, cert []byte, key []byte, body []byte) (string, error) {
+	privKey, err := GetRSAPrivateKey(key)
+	if err != nil {
+		return "", err
+	}
+	b64body := B64Encode(body)
+	b64cert := B64Encode(cert)
+	bodyAndcert := b64body + "." + b64cert
+	hash := sha512.New384()
+	hash.Write([]byte(bodyAndcert))
+	h := hash.Sum(nil)
+	RSAsignature, err := rsa.SignPKCS1v15(rand.Reader, privKey, crypto.SHA384, h[:])
+	if err != nil {
+		return "", errors.Wrap(err, "Failed to rsa.SignPKCS1v15")
+	}
+	b64sig := B64Encode(RSAsignature)
+	token := b64cert + "." + b64sig
+
+	return  token, nil
+}
+*/
 
 //GenECDSAToken signs the http body and cert with ECDSA using EC private key
 func GenECDSAToken(csp bccsp.BCCSP, cert []byte, key bccsp.Key, method, uri string, body []byte) (string, error) {
@@ -197,13 +273,12 @@ func genECDSAToken(csp bccsp.BCCSP, key bccsp.Key, b64cert, payload string) (str
 
 // VerifyToken verifies token signed by either ECDSA or RSA and
 // returns the associated user ID
-//
-// TODO(mjs): Move to consumer (lib/serverRequestContextImpl#verifyX509Token)
 func VerifyToken(csp bccsp.BCCSP, token string, method, uri string, body []byte, compMode1_3 bool) (*x509.Certificate, error) {
+
 	if csp == nil {
 		return nil, errors.New("BCCSP instance is not present")
 	}
-	x509Cert, b64Cert, b64Sig, err := decodeToken(token)
+	x509Cert, b64Cert, b64Sig, err := DecodeToken(token)
 	if err != nil {
 		return nil, err
 	}
@@ -251,8 +326,8 @@ func VerifyToken(csp bccsp.BCCSP, token string, method, uri string, body []byte,
 	return x509Cert, nil
 }
 
-// decodeToken extracts an X509 certificate and base64 encoded signature from a token
-func decodeToken(token string) (*x509.Certificate, string, string, error) {
+// DecodeToken extracts an X509 certificate and base64 encoded signature from a token
+func DecodeToken(token string) (*x509.Certificate, string, string, error) {
 	if token == "" {
 		return nil, "", "", errors.New("Invalid token; it is empty")
 	}
@@ -284,9 +359,9 @@ func GetECPrivateKey(raw []byte) (*ecdsa.PrivateKey, error) {
 	}
 	key, err2 := x509.ParsePKCS8PrivateKey(decoded.Bytes)
 	if err2 == nil {
-		switch key := key.(type) {
+		switch key.(type) {
 		case *ecdsa.PrivateKey:
-			return key, nil
+			return key.(*ecdsa.PrivateKey), nil
 		case *rsa.PrivateKey:
 			return nil, errors.New("Expecting EC private key but found RSA private key")
 		default:
@@ -308,16 +383,29 @@ func GetRSAPrivateKey(raw []byte) (*rsa.PrivateKey, error) {
 	}
 	key, err2 := x509.ParsePKCS8PrivateKey(decoded.Bytes)
 	if err2 == nil {
-		switch key := key.(type) {
+		switch key.(type) {
 		case *ecdsa.PrivateKey:
 			return nil, errors.New("Expecting RSA private key but found EC private key")
 		case *rsa.PrivateKey:
-			return key, nil
+			return key.(*rsa.PrivateKey), nil
 		default:
 			return nil, errors.New("Invalid private key type in PKCS#8 wrapping")
 		}
 	}
 	return nil, errors.Wrap(err, "Failed parsing RSA private key")
+}
+
+//GetSM2PrivateKey get *sm2.PrivateKey from key pem
+func GetSM2PrivateKey(raw []byte) (*sm2.PrivateKey, error) {
+	decoded, _ := pem.Decode(raw)
+	if decoded == nil {
+		return nil, errors.New("Failed to decode the PEM-encoded sm2 key")
+	}
+	if key, err := x509GM.ParsePKCS8UnecryptedPrivateKey(decoded.Bytes); err == nil {
+		return key, nil
+	} else {
+		return nil, fmt.Errorf("tls: failed to parse sm2 private key %v", err)
+	}
 }
 
 // B64Encode base64 encodes bytes
@@ -328,6 +416,33 @@ func B64Encode(buf []byte) string {
 // B64Decode base64 decodes a string
 func B64Decode(str string) (buf []byte, err error) {
 	return base64.StdEncoding.DecodeString(str)
+}
+
+// StrContained returns true if 'str' is in 'strs'; otherwise return false
+func StrContained(str string, strs []string) bool {
+	for _, s := range strs {
+		if strings.ToLower(s) == strings.ToLower(str) {
+			return true
+		}
+	}
+	return false
+}
+
+// IsSubsetOf returns an error if there is something in 'small' that
+// is not in 'big'.  Both small and big are assumed to be comma-separated
+// strings.  All string comparisons are case-insensitive.
+// Examples:
+// 1) IsSubsetOf('a,B', 'A,B,C') returns nil
+// 2) IsSubsetOf('A,B,C', 'B,C') returns an error because A is not in the 2nd set.
+func IsSubsetOf(small, big string) error {
+	bigSet := strings.Split(big, ",")
+	smallSet := strings.Split(small, ",")
+	for _, s := range smallSet {
+		if s != "" && !StrContained(s, bigSet) {
+			return errors.Errorf("'%s' is not a member of '%s'", s, big)
+		}
+	}
+	return nil
 }
 
 // HTTPRequestToString returns a string for an HTTP request for debuggging
@@ -413,10 +528,17 @@ func GetX509CertificateFromPEM(cert []byte) (*x509.Certificate, error) {
 	if block == nil {
 		return nil, errors.New("Failed to PEM decode certificate")
 	}
-	x509Cert, err := x509.ParseCertificate(block.Bytes)
+	var x509Cert *x509.Certificate
+	x509GMCert, err := x509GM.ParseCertificate(block.Bytes)
 	if err != nil {
-		return nil, errors.Wrap(err, "Error parsing certificate")
+		x509Cert, err = x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return nil, errors.Wrap(err, "Error parsing certificate")
+		}
+	} else {
+		x509Cert = gm.ParseSm2Certificate2X509(x509GMCert)
 	}
+
 	return x509Cert, nil
 }
 
@@ -430,12 +552,17 @@ func GetX509CertificatesFromPEM(pemBytes []byte) ([]*x509.Certificate, error) {
 		if block == nil {
 			break
 		}
-
-		cert, err := x509.ParseCertificate(block.Bytes)
+		var x509Cert *x509.Certificate
+		x509GMCert, err := x509GM.ParseCertificate(block.Bytes)
 		if err != nil {
-			return nil, errors.Wrap(err, "Error parsing certificate")
+			x509Cert, err = x509.ParseCertificate(block.Bytes)
+			if err != nil {
+				return nil, errors.Wrap(err, "Error parsing certificate")
+			}
+		} else {
+			x509Cert = gm.ParseSm2Certificate2X509(x509GMCert)
 		}
-		certs = append(certs, cert)
+		certs = append(certs, x509Cert)
 	}
 	return certs, nil
 }
@@ -504,7 +631,8 @@ func Fatal(format string, v ...interface{}) {
 
 // GetUser returns username and password from CLI input
 func GetUser(v *viper.Viper) (string, string, error) {
-	fabricCAServerURL := v.GetString("url")
+	var fabricCAServerURL string
+	fabricCAServerURL = v.GetString("url")
 
 	URL, err := url.Parse(fabricCAServerURL)
 	if err != nil {
@@ -583,7 +711,7 @@ func GetMaskedURL(url string) string {
 				matchStr = strings.Replace(matchStr, matches[idx], "****", 1)
 			}
 		}
-		url = url[:matchIdxs[0]] + matchStr + url[matchIdxs[1]:]
+		url = url[:matchIdxs[0]] + matchStr + url[matchIdxs[1]:len(url)]
 	}
 	return url
 }
@@ -767,6 +895,6 @@ func ErrorContains(t *testing.T, err error, contains, msg string, args ...interf
 		msg = fmt.Sprintf(msg, args)
 	}
 	if assert.Error(t, err, msg) {
-		assert.Contains(t, caerrors.Print(err), contains)
+		assert.Contains(t, err.Error(), contains)
 	}
 }

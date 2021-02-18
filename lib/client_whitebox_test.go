@@ -36,6 +36,8 @@ const (
 	testTLSClientAuthDir = "testTLSClientAuthDir"
 )
 
+var clientConfig = path.Join(testdataDir, "client-config.json")
+
 func TestCWBClient1(t *testing.T) {
 	server := getServer(whitePort, path.Join(serversDir, "c1"), "", 1, t)
 	if server == nil {
@@ -75,7 +77,6 @@ func TestCWBTLSClientAuth(t *testing.T) {
 		return
 	}
 	server.CA.Config.CSR.CN = "localhost"
-	server.Config.CAcfg.CSR.Hosts = []string{"localhost"}
 	err := server.Start()
 	if err != nil {
 		t.Fatalf("Failed to start server: %s", err)
@@ -131,7 +132,7 @@ func TestCWBTLSClientAuth(t *testing.T) {
 	// Start server
 	log.Debug("Starting the server with TLS")
 	server.Config.TLS.Enabled = true
-	server.Config.TLS.CertFile = "tls-cert.pem"
+	server.Config.TLS.CertFile = "ca-cert.pem"
 	err = server.Start()
 	if err != nil {
 		t.Fatalf("Failed to start server with HTTPS: %s", err)
@@ -156,7 +157,6 @@ func TestCWBTLSClientAuth(t *testing.T) {
 	client.Config.TLS.CertFiles = []string{"../server/ca-cert.pem"}
 	// Reinialize the http client with updated config and re-enroll over HTTPS
 	err = client.initHTTPClient()
-	assert.NoError(t, err)
 	resp, err := id.Reenroll(&api.ReenrollmentRequest{})
 	if err != nil {
 		server.Stop()
@@ -197,7 +197,6 @@ func TestCWBTLSClientAuth(t *testing.T) {
 	client.Config.TLS.Client.CertFile = path.Join("msp", "signcerts", "cert.pem")
 	// Reinialize the http client with updated config and re-enroll over HTTPS with client auth
 	err = client.initHTTPClient()
-	assert.NoError(t, err)
 	_, err = id.Reenroll(&api.ReenrollmentRequest{})
 	if err != nil {
 		t.Errorf("Client reenroll with client auth failed: %s", err)
@@ -241,7 +240,7 @@ func enrollAndCheck(t *testing.T, c *Client, body []byte, authHeader string) {
 	if authHeader != "" {
 		post.Header.Set("Authorization", authHeader)
 	}
-	var result api.EnrollmentResponseNet
+	var result common.EnrollmentResponseNet
 	err = c.SendReq(post, &result)
 	t.Logf("c.SendReq: %v", err)
 	if err == nil {
@@ -553,7 +552,7 @@ func TestCWBNewCertificateRequest(t *testing.T) {
 	req := &api.CSRInfo{
 		Names:      []csr.Name{},
 		Hosts:      []string{},
-		KeyRequest: api.NewKeyRequest(),
+		KeyRequest: api.NewBasicKeyRequest(),
 	}
 	if c.newCertificateRequest(req, "fake-id") == nil {
 		t.Error("newCertificateRequest failed")
@@ -667,7 +666,7 @@ func masqueradeEnroll(c *Client, id string, passInSubject bool, req *api.Enrollm
 		return nil, err
 	}
 	post.SetBasicAuth(req.Name, req.Secret)
-	var result api.EnrollmentResponseNet
+	var result common.EnrollmentResponseNet
 	err = c.SendReq(post, &result)
 	if err != nil {
 		return nil, err
@@ -704,7 +703,7 @@ func masqueradeReenroll(c *Client, id string, identity *Identity, passInSubject 
 		return nil, err
 	}
 	// Send the CSR to the fabric-ca server with basic auth header
-	var result api.EnrollmentResponseNet
+	var result common.EnrollmentResponseNet
 	err = identity.Post("reenroll", body, &result, nil)
 	if err != nil {
 		return nil, err

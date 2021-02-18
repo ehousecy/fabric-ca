@@ -10,6 +10,8 @@ import (
 	"crypto/x509"
 	"encoding/asn1"
 	"encoding/pem"
+	x509GM "github.com/Hyperledger-TWGC/tjfoc-gm/x509"
+	"github.com/hyperledger/fabric/bccsp/gm"
 	"time"
 
 	"github.com/cloudflare/cfssl/config"
@@ -114,24 +116,17 @@ func handleEnroll(ctx *serverRequestContextImpl, id string) (interface{}, error)
 	}
 	req.NotAfter = time.Now().Round(time.Minute).Add(profile.Expiry).UTC()
 
-	notBefore, notAfter, err := ca.getCACertExpiry()
+	caexpiry, err := ca.getCACertExpiry()
 	if err != nil {
 		return nil, errors.New("Failed to get CA certificate information")
 	}
 
 	// Make sure requested expiration for enrollment certificate is not after CA certificate
 	// expiration
-	if !notAfter.IsZero() && req.NotAfter.After(notAfter) {
+	if !caexpiry.IsZero() && req.NotAfter.After(caexpiry) {
 		log.Debugf("Requested expiry '%s' is after the CA certificate expiry '%s'. Will use CA cert expiry",
-			req.NotAfter, notAfter)
-		req.NotAfter = notAfter
-	}
-	// Make sure that requested expiration for enrollment certificate is not before CA certificate
-	// expiration
-	if !notBefore.IsZero() && req.NotBefore.Before(notBefore) {
-		log.Debugf("Requested expiry '%s' is before the CA certificate expiry '%s'. Will use CA cert expiry",
-			req.NotBefore, notBefore)
-		req.NotBefore = notBefore
+			req.NotAfter, caexpiry)
+		req.NotAfter = caexpiry
 	}
 
 	// Process the sign request from the caller.
@@ -143,7 +138,7 @@ func handleEnroll(ctx *serverRequestContextImpl, id string) (interface{}, error)
 	// Get an attribute extension if one is being requested
 	ext, err := ctx.GetAttrExtension(req.AttrReqs, req.Profile)
 	if err != nil {
-		return nil, errors.WithMessage(err, "Failed to find requested attributes")
+		return nil, err
 	}
 	// If there is an extension requested, add it to the request
 	if ext != nil {
@@ -179,19 +174,28 @@ func processSignRequest(id string, req *signer.SignRequest, ca *CA, ctx *serverR
 	// Decode and parse the request into a CSR so we can make checks
 	block, _ := pem.Decode([]byte(req.Request))
 	if block == nil {
-		return caerrors.NewHTTPErr(400, caerrors.ErrBadCSR, "CSR Decode failed")
+		return cferr.New(cferr.CSRError, cferr.DecodeFailed)
 	}
 	if block.Type != "NEW CERTIFICATE REQUEST" && block.Type != "CERTIFICATE REQUEST" {
 		return cferr.Wrap(cferr.CSRError,
 			cferr.BadRequest, errors.New("not a certificate or csr"))
 	}
-	csrReq, err := x509.ParseCertificateRequest(block.Bytes)
+
+	var csrReq *x509.CertificateRequest
+
+	csrReqGM, err := x509GM.ParseCertificateRequest(block.Bytes)
 	if err != nil {
-		return err
+		csrReq, err = x509.ParseCertificateRequest(block.Bytes)
+		if err != nil {
+			return err
+		}
+		log.Debugf("Processing sign request: id=%s, CommonName=%s, Subject=%+v", id, csrReq.Subject.CommonName, req.Subject)
+	} else {
+		csrReq = gm.ParseSm2CertificateRequest2X509(csrReqGM)
 	}
-	log.Debugf("Processing sign request: id=%s, CommonName=%s, Subject=%+v", id, csrReq.Subject.CommonName, req.Subject)
+
 	if (req.Subject != nil && req.Subject.CN != id) || csrReq.Subject.CommonName != id {
-		return caerrors.NewHTTPErr(403, caerrors.ErrCNInvalidEnroll, "The CSR subject common name must equal the enrollment ID")
+		return errors.New("The CSR subject common name must equal the enrollment ID")
 	}
 	isForCACert, err := isRequestForCASigningCert(csrReq, ca, req.Profile)
 	if err != nil {
@@ -202,13 +206,13 @@ func processSignRequest(id string, req *signer.SignRequest, ca *CA, ctx *serverR
 		// has the 'hf.IntermediateCA' attribute
 		err := ca.attributeIsTrue(id, "hf.IntermediateCA")
 		if err != nil {
-			return caerrors.NewAuthorizationErr(caerrors.ErrInvokerMissAttr, "Enrolled failed: %s", err)
+			return err
 		}
 	}
 	// Check the CSR input length
 	err = csrInputLengthCheck(csrReq)
 	if err != nil {
-		return caerrors.NewHTTPErr(400, caerrors.ErrInputValidCSR, "CSR input validation failed: %s", err)
+		return err
 	}
 	caller, err := ctx.GetCaller()
 	if err != nil {

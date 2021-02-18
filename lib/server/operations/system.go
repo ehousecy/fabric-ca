@@ -10,6 +10,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"github.com/Hyperledger-TWGC/tjfoc-gm/gmtls"
 	"io"
 	"net"
 	"net/http"
@@ -25,7 +26,6 @@ import (
 	"github.com/hyperledger/fabric/common/metrics/disabled"
 	"github.com/hyperledger/fabric/common/metrics/prometheus"
 	"github.com/hyperledger/fabric/common/metrics/statsd"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // System is an operations server that is responsible for metrics and health checks
@@ -133,7 +133,7 @@ func (s *System) initializeMetricsProvider() {
 
 	case "prometheus":
 		s.Provider = &prometheus.Provider{}
-		s.mux.Handle("/metrics", promhttp.Handler())
+		//s.mux.Handle("/metrics", prom.Handler())
 
 	default:
 		if providerType != "disabled" {
@@ -192,13 +192,20 @@ func (s *System) listen() (net.Listener, error) {
 	if err != nil {
 		return nil, err
 	}
-	tlsConfig, err := s.options.TLS.Config()
+
+	gmtlsConfig, err := s.options.TLS.ConfigGM()
 	if err != nil {
-		return nil, err
+		tlsConfig, err := s.options.TLS.Config()
+		if err != nil {
+			return nil, err
+		}
+		if tlsConfig != nil {
+			listener = tls.NewListener(listener, tlsConfig)
+		}
+	} else {
+		listener = gmtls.NewListener(listener, gmtlsConfig)
 	}
-	if tlsConfig != nil {
-		listener = tls.NewListener(listener, tlsConfig)
-	}
+
 	return listener, nil
 }
 

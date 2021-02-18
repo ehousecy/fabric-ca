@@ -8,9 +8,9 @@ package lib
 
 import (
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"fmt"
+	"github.com/hyperledger/fabric-ca/lib/server/db"
+	"github.com/hyperledger/fabric-ca/lib/server/idemix"
 	"io"
 	"io/ioutil"
 	"net"
@@ -23,6 +23,8 @@ import (
 	"sync"
 	"time"
 
+	tls "github.com/Hyperledger-TWGC/tjfoc-gm/gmtls"
+	"github.com/Hyperledger-TWGC/tjfoc-gm/x509"
 	"github.com/cloudflare/cfssl/log"
 	"github.com/cloudflare/cfssl/revoke"
 	"github.com/cloudflare/cfssl/signer"
@@ -33,14 +35,13 @@ import (
 	"github.com/hyperledger/fabric-ca/internal/pkg/util"
 	"github.com/hyperledger/fabric-ca/lib/attr"
 	"github.com/hyperledger/fabric-ca/lib/caerrors"
+	"github.com/hyperledger/fabric-ca/lib/gmtls"
 	"github.com/hyperledger/fabric-ca/lib/metadata"
-	"github.com/hyperledger/fabric-ca/lib/server/db"
 	dbutil "github.com/hyperledger/fabric-ca/lib/server/db/util"
-	idemix "github.com/hyperledger/fabric-ca/lib/server/idemix"
 	servermetrics "github.com/hyperledger/fabric-ca/lib/server/metrics"
 	"github.com/hyperledger/fabric-ca/lib/server/operations"
-	stls "github.com/hyperledger/fabric-ca/lib/tls"
 	"github.com/hyperledger/fabric-lib-go/healthz"
+	cspDecryptor "github.com/hyperledger/fabric/bccsp/decrypter"
 	"github.com/hyperledger/fabric/common/metrics"
 	"github.com/pkg/errors"
 	"github.com/spf13/viper"
@@ -89,6 +90,8 @@ type Server struct {
 	serveError error
 	// caMap is a list of CAs by name
 	caMap map[string]*CA
+	// caConfigMap is a list CA configs by filename
+	caConfigMap map[string]*CAConfig
 	// levels currently supported by the server
 	levels *dbutil.Levels
 	wait   chan bool
@@ -365,7 +368,8 @@ func (s *Server) initMultiCAConfig() (err error) {
 	if len(cfg.CAfiles) != 0 {
 		log.Debugf("Default CA configuration, if necessary, will be used to replace missing values for additional CAs: %+v", s.Config.CAcfg)
 		log.Debugf("Additional CAs to be started: %s", cfg.CAfiles)
-		caFiles := util.NormalizeStringSlice(cfg.CAfiles)
+		var caFiles []string
+		caFiles = util.NormalizeStringSlice(cfg.CAfiles)
 		for _, caFile := range caFiles {
 			err = s.loadCA(caFile, false)
 			if err != nil {
@@ -555,6 +559,7 @@ func (s *Server) registerHandlers() {
 	s.registerHandler(newIdemixCRIEndpoint(s))
 	s.registerHandler(newReenrollEndpoint(s))
 	s.registerHandler(newRevokeEndpoint(s))
+	s.registerHandler(newTCertEndpoint(s))
 	s.registerHandler(newGenCRLEndpoint(s))
 	s.registerHandler(newIdentitiesStreamingEndpoint(s))
 	s.registerHandler(newIdentitiesEndpoint(s))
@@ -646,7 +651,12 @@ func (s *Server) listenAndServe() (err error) {
 			}
 		}
 
-		cer, err := util.LoadX509KeyPair(c.TLS.CertFile, c.TLS.KeyFile, s.csp)
+		cspKey, signCert, err := util.LoadX509KeyPair(c.TLS.CertFile, c.TLS.KeyFile, s.csp)
+		if err != nil {
+			return err
+		}
+
+		decrypter, err := cspDecryptor.New(s.csp, cspKey)
 		if err != nil {
 			return err
 		}
@@ -655,7 +665,8 @@ func (s *Server) listenAndServe() (err error) {
 			c.TLS.ClientAuth.Type = defaultClientAuth
 		}
 
-		log.Debugf("Client authentication type requested: %s", c.TLS.ClientAuth.Type)
+		enCert := *signCert
+		enCert.PrivateKey = decrypter
 
 		authType := strings.ToLower(c.TLS.ClientAuth.Type)
 		if clientAuth, ok = clientAuthTypes[authType]; !ok {
@@ -671,12 +682,12 @@ func (s *Server) listenAndServe() (err error) {
 		}
 
 		config := &tls.Config{
-			Certificates: []tls.Certificate{*cer},
+			GMSupport:    &tls.GMSupport{},
+			Certificates: []tls.Certificate{*gmtls.TransformTLSCertificate(signCert), *gmtls.TransformTLSCertificate(&enCert)},
 			ClientAuth:   clientAuth,
 			ClientCAs:    certPool,
-			MinVersion:   tls.VersionTLS12,
-			MaxVersion:   tls.VersionTLS13,
-			CipherSuites: stls.DefaultCipherSuites,
+			MinVersion:   tls.VersionGMSSL,
+			MaxVersion:   tls.VersionTLS12,
 		}
 
 		listener, err = tls.Listen("tcp", addr, config)
@@ -772,7 +783,7 @@ func (s *Server) checkAndEnableProfiling() error {
 // Make all file names in the config absolute
 func (s *Server) makeFileNamesAbsolute() error {
 	log.Debug("Making server filenames absolute")
-	err := stls.AbsTLSServer(&s.Config.TLS, s.HomeDir)
+	err := gmtls.AbsTLSServer(&s.Config.TLS, s.HomeDir)
 	if err != nil {
 		return err
 	}
@@ -785,7 +796,7 @@ func (s *Server) closeListener() error {
 	defer s.mutex.Unlock()
 
 	if s.listener == nil {
-		msg := "Stop: listener was already closed"
+		msg := fmt.Sprintf("Stop: listener was already closed")
 		log.Debugf(msg)
 		return errors.New(msg)
 	}
@@ -874,7 +885,7 @@ func (s *Server) autoGenerateTLSCertificateKey() error {
 	// Can't use the same CN as the signing certificate CN (default: fabric-ca-server) otherwise no AKI is generated
 	csr, _, err := client.GenCSR(&csrReq, hostname)
 	if err != nil {
-		return fmt.Errorf("Failed to generate CSR: %s", err)
+		return fmt.Errorf("failed to generate CSR: %s", err)
 	}
 
 	// Use the 'tls' profile that will return a certificate with the appropriate extensions

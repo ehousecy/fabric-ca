@@ -7,22 +7,23 @@ SPDX-License-Identifier: Apache-2.0
 package lib
 
 import (
-	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
-	"io/ioutil"
-	"net/http"
-	"os"
-	"path/filepath"
-
+	tls "github.com/Hyperledger-TWGC/tjfoc-gm/gmtls"
+	sm2 "github.com/Hyperledger-TWGC/tjfoc-gm/x509"
 	"github.com/cloudflare/cfssl/log"
 	"github.com/grantae/certinfo"
 	"github.com/hyperledger/fabric-ca/internal/pkg/api"
-	"github.com/hyperledger/fabric-ca/lib/caerrors"
+	"github.com/hyperledger/fabric-ca/internal/pkg/util"
 	"github.com/pkg/errors"
 	"github.com/spf13/viper"
+	"github.com/tw-bc-group/net-go-gm/http"
+	"io/ioutil"
+	"os"
+	"path/filepath"
 )
 
 var clientAuthTypes = map[string]tls.ClientAuthType{
@@ -31,6 +32,17 @@ var clientAuthTypes = map[string]tls.ClientAuthType{
 	"requireanyclientcert":       tls.RequireAnyClientCert,
 	"verifyclientcertifgiven":    tls.VerifyClientCertIfGiven,
 	"requireandverifyclientcert": tls.RequireAndVerifyClientCert,
+}
+
+// GetCertID returns both the serial number and AKI (Authority Key ID) for the certificate
+func GetCertID(bytes []byte) (string, string, error) {
+	cert, err := BytesToX509Cert(bytes)
+	if err != nil {
+		return "", "", err
+	}
+	serial := util.GetSerialAsHex(cert.SerialNumber)
+	aki := hex.EncodeToString(cert.AuthorityKeyId)
+	return serial, aki, nil
 }
 
 // BytesToX509Cert converts bytes (PEM or DER) to an X509 certificate
@@ -47,8 +59,8 @@ func BytesToX509Cert(bytes []byte) (*x509.Certificate, error) {
 }
 
 // LoadPEMCertPool loads a pool of PEM certificates from list of files
-func LoadPEMCertPool(certFiles []string) (*x509.CertPool, error) {
-	certPool := x509.NewCertPool()
+func LoadPEMCertPool(certFiles []string) (*sm2.CertPool, error) {
+	certPool := sm2.NewCertPool()
 
 	if len(certFiles) > 0 {
 		for _, cert := range certFiles {
@@ -95,7 +107,7 @@ func UnmarshalConfig(config interface{}, vp *viper.Viper, configFile string,
 func getMaxEnrollments(userMaxEnrollments int, caMaxEnrollments int) (int, error) {
 	log.Debugf("Max enrollment value verification - User specified max enrollment: %d, CA max enrollment: %d", userMaxEnrollments, caMaxEnrollments)
 	if userMaxEnrollments < -1 {
-		return 0, caerrors.NewHTTPErr(400, caerrors.ErrInvalidMaxEnroll, "Max enrollment in registration request may not be less than -1, but was %d", userMaxEnrollments)
+		return 0, errors.Errorf("Max enrollment in registration request may not be less than -1, but was %d", userMaxEnrollments)
 	}
 	switch caMaxEnrollments {
 	case -1:
@@ -107,19 +119,20 @@ func getMaxEnrollments(userMaxEnrollments int, caMaxEnrollments int) (int, error
 		return userMaxEnrollments, nil
 	case 0:
 		// The CA max enrollment is 0, so registration is disabled.
-		return 0, caerrors.NewHTTPErr(400, caerrors.ErrInvalidMaxEnroll, "Registration is disabled")
+		return 0, errors.New("Registration is disabled")
 	default:
 		switch userMaxEnrollments {
 		case -1:
 			// User requested infinite enrollments is not allowed
-			return 0, caerrors.NewHTTPErr(400, caerrors.ErrInvalidMaxEnroll, "Registration for infinite enrollments is not allowed")
+			return 0, errors.New("Registration for infinite enrollments is not allowed")
 		case 0:
 			// User is requesting the current CA maximum
 			return caMaxEnrollments, nil
 		default:
 			// User is requesting a specific positive value; make sure it doesn't exceed the CA maximum.
 			if userMaxEnrollments > caMaxEnrollments {
-				return 0, caerrors.NewHTTPErr(400, caerrors.ErrInvalidMaxEnroll, "Requested enrollments (%d) exceeds maximum allowable enrollments (%d)", userMaxEnrollments, caMaxEnrollments)
+				return 0, errors.Errorf("Requested enrollments (%d) exceeds maximum allowable enrollments (%d)",
+					userMaxEnrollments, caMaxEnrollments)
 			}
 			// otherwise, use the requested maximum
 			return userMaxEnrollments, nil
@@ -176,7 +189,7 @@ func (cd *CertificateDecoder) CertificateDecoder(decoder *json.Decoder) error {
 	}
 	enrollmentID := certificate.Subject.CommonName
 	if cd.storePath != "" {
-		err = cd.storeCert(enrollmentID, cd.storePath, []byte(cert.PEM))
+		err = cd.StoreCert(enrollmentID, cd.storePath, []byte(cert.PEM))
 		if err != nil {
 			return err
 		}
@@ -190,8 +203,8 @@ func (cd *CertificateDecoder) CertificateDecoder(decoder *json.Decoder) error {
 	return nil
 }
 
-// storeCert stores the certificate on the file system
-func (cd *CertificateDecoder) storeCert(enrollmentID, storePath string, cert []byte) error {
+// StoreCert stores the certificate on the file system
+func (cd *CertificateDecoder) StoreCert(enrollmentID, storePath string, cert []byte) error {
 	cd.certIDCount[enrollmentID] = cd.certIDCount[enrollmentID] + 1
 
 	err := os.MkdirAll(storePath, os.ModePerm)

@@ -7,14 +7,13 @@ SPDX-License-Identifier: Apache-2.0
 package lib
 
 import (
-	"github.com/cloudflare/cfssl/signer"
+	"os"
+	"testing"
+
 	"github.com/hyperledger/fabric-ca/internal/pkg/api"
 	"github.com/hyperledger/fabric-ca/internal/pkg/util"
 	dbuser "github.com/hyperledger/fabric-ca/lib/server/user"
 	"github.com/stretchr/testify/assert"
-	"os"
-	"testing"
-	"time"
 )
 
 func TestStateUpdate(t *testing.T) {
@@ -170,66 +169,4 @@ func TestPasswordLimit(t *testing.T) {
 	user1, err = registry.GetUser("user1", nil)
 	util.FatalError(t, err, "Failed to get 'user1' from database")
 	assert.Equal(t, 0, user1.GetFailedLoginAttempts())
-}
-
-func TestCertificateExpiration(t *testing.T) {
-	cleanTestSlateSE(t)
-	defer cleanTestSlateSE(t)
-
-	srv := TestGetRootServer(t)
-	err := srv.Start()
-	util.FatalError(t, err, "Failed to start server")
-	defer srv.Stop()
-
-	caCertPem, _ := srv.CA.getCACert()
-	caCert, _ := util.GetX509CertificateFromPEM(caCertPem)
-
-	client := getTestClient(rootPort)
-
-	csrPEM, _, err := client.GenCSR(&api.CSRInfo{CN: "admin"}, "admin")
-	assert.NoError(t, err, "Failed to generate CSR")
-
-	reqNet := &api.EnrollmentRequestNet{
-		SignRequest: signer.SignRequest{
-			Request: string(csrPEM),
-			// requesting certificate with validity time wider then CA cert
-			NotBefore: caCert.NotBefore.Add(-1 * time.Hour),
-			NotAfter:  caCert.NotAfter.Add(24 * time.Hour),
-		},
-	}
-
-	body, err := util.Marshal(reqNet, "SignRequest")
-	assert.NoError(t, err, "Failed to marshal enroll request")
-
-	// Send the CSR to the fabric-ca server with basic auth header
-	post, err := client.newPost("enroll", body)
-	assert.NoError(t, err, "Failed to create post request")
-	post.SetBasicAuth("admin", "adminpw")
-
-	var result api.EnrollmentResponseNet
-	err = client.SendReq(post, &result)
-	assert.NoError(t, err, "Failed to enroll")
-
-	// verify response
-	certBytes, err := util.B64Decode(result.Cert)
-	assert.NoError(t, err, "Failed to convert certificate")
-	userCert, err := util.GetX509CertificateFromPEM(certBytes)
-	assert.NoError(t, err, "Failed to extract certificate from enroll response")
-
-	// certificate validity is in range of CA cert validity
-	assertValidityInRange(t, userCert.NotBefore, userCert.NotAfter, caCert.NotBefore, caCert.NotAfter)
-
-	// ensure that CA issue a certificate with starting time as early as possible
-	assert.True(t, userCert.NotBefore.Equal(caCert.NotBefore), "certificate starting time should be as early as possible")
-}
-
-func assertValidityInRange(t assert.TestingT, certNotBefore time.Time, certNotAfter time.Time, caNotBefore time.Time, caNotAfter time.Time) {
-	// caCertNotBefore <= certNotBefore < certNotAfter <= caCertNotAfter
-
-	assert.True(t, certNotBefore.Before(certNotAfter), "certificate without valid time NotBefore is not before NotAfter")
-
-	assert.False(t, certNotBefore.Before(caNotBefore),
-		"certificate NotBefore %v is before CA cert NotBefore %v", certNotBefore, caNotBefore)
-	assert.False(t, certNotAfter.After(caNotAfter),
-		"user certificate NotAfter %v is after CA cert NotAfter %v", certNotAfter, caNotAfter)
 }

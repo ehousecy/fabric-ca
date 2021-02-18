@@ -225,14 +225,8 @@ func TestSRVRootServer(t *testing.T) {
 	cert := user1.GetECert().GetX509Cert()
 	assert.NotNil(t, cert, "Failed to get user1's enrollment certificate")
 
-	assert.Contains(
-		t,
-		cert.Subject.OrganizationalUnit,
-		"user",
-		"hyperledger",
-		"fabric",
-		"security",
-	)
+	ouPath := strings.Join(cert.Subject.OrganizationalUnit, ".")
+	assert.Equal(t, "user.hyperledger.fabric.security", ouPath, "Invalid OU path in certificate")
 
 	// The admin ID should have 1 cert in the DB now
 	dba := server.CA.CertDBAccessor()
@@ -288,6 +282,16 @@ func TestSRVRootServer(t *testing.T) {
 	if err == nil {
 		t.Error("User1 should not be allowed to revoke user2 because of affiliation")
 	}
+	// User1 get's batch of tcerts
+	_, err = user1.GetTCertBatch(&api.GetTCertBatchRequest{Count: 1, AttrNames: []string{"attr1"}})
+	if err != nil {
+		t.Fatalf("Failed to get tcerts for user1: %s", err)
+	}
+	// User1 get's batch of tcerts with attributes
+	_, err = user1.GetTCertBatch(&api.GetTCertBatchRequest{Count: 1})
+	if err != nil {
+		t.Fatalf("Failed to get tcerts for user1: %s", err)
+	}
 	// Admin should not be allowed to revoke an invalid cert
 	_, err = admin.Revoke(&api.RevocationRequest{AKI: "foo", Serial: "bar"})
 	if err == nil {
@@ -297,6 +301,11 @@ func TestSRVRootServer(t *testing.T) {
 	_, err = admin.Revoke(&api.RevocationRequest{Name: "user1"})
 	if err != nil {
 		t.Fatalf("Failed to revoke user1's identity: %s", err)
+	}
+	// User1 should not be allowed to get tcerts now that it is revoked
+	_, err = user1.GetTCertBatch(&api.GetTCertBatchRequest{Count: 1})
+	if err == nil {
+		t.Errorf("User1 should have failed to get tcerts since it is revoked")
 	}
 
 	// Test to make sure that if an identity registered with an
@@ -497,7 +506,9 @@ func TestSRVIntermediateServerWithFalseAttr(t *testing.T) {
 	}
 
 	err = intermediateServer.Init(false)
-	util.ErrorContains(t, err, "Authorization failure", "Should have failed, the attribute 'hf.IntermediateCA' is not set to true. Cannot register as Intermediate CA")
+	if assert.Error(t, err, "Should have failed, the attribute 'hf.IntermediateCA' is not set to true. Cannot register as Intermediate CA") {
+		assert.Contains(t, err.Error(), "is not set to true")
+	}
 
 	// deferred cleanup
 }
@@ -687,18 +698,16 @@ func TestSRVRunningTLSServer(t *testing.T) {
 		t.Errorf("Failed to enroll over TLS: %s", err)
 	}
 
-	// make sure only TLSv1.2 and TLSv1.3 are supported
+	// make sure only TLS 1.2 is supported
 	rootPool := x509.NewCertPool()
 	rootBytes, _ := ioutil.ReadFile("../testdata/root.pem")
 	rootPool.AppendCertsFromPEM(rootBytes)
-	for _, tlsVersion := range []uint16{tls.VersionTLS12, tls.VersionTLS13} {
-		_, err = tls.Dial("tcp", fmt.Sprintf("localhost:%d", rootPort), &tls.Config{
-			RootCAs:    rootPool,
-			MinVersion: tlsVersion,
-			MaxVersion: tlsVersion,
-		})
-		assert.NoError(t, err, "Should have connected using a valid TLS version [TLSv1.2, TLSv1.3]")
-	}
+	_, err = tls.Dial("tcp", fmt.Sprintf("localhost:%d", rootPort), &tls.Config{
+		RootCAs:    rootPool,
+		MinVersion: tls.VersionTLS12,
+		MaxVersion: tls.VersionTLS12,
+	})
+	assert.NoError(t, err, "Should have connected using TLS 1.2")
 	for _, tlsVersion := range []uint16{tls.VersionSSL30, tls.VersionTLS10, tls.VersionTLS11} {
 		_, err = tls.Dial("tcp", fmt.Sprintf("localhost:%d", rootPort), &tls.Config{
 			MinVersion: tlsVersion,
@@ -843,6 +852,7 @@ func TestSRVBadAuthHeader(t *testing.T) {
 	perEndpointNegativeTests("enroll", "basic", t)
 	perEndpointNegativeTests("reenroll", "token", t)
 	perEndpointNegativeTests("register", "token", t)
+	perEndpointNegativeTests("tcert", "token", t)
 }
 
 func invalidTokenAuthorization(t *testing.T) {
@@ -2156,7 +2166,7 @@ func TestCSRInputLengthCheck(t *testing.T) {
 		Secret: "pass",
 		CSR:    badCSR,
 	})
-	if assert.Error(t, err, "Number of characters for CN is greater than the maximum limit, should have resulted in an error") {
+	if assert.Error(t, err, fmt.Sprint("Number of characters for CN is greater than the maximum limit, should have resulted in an error")) {
 		assert.Contains(t, err.Error(), "CN")
 	}
 
@@ -2439,6 +2449,23 @@ func cleanMultiCADir(t *testing.T) {
 	}
 }
 
+func getRootServerURL() string {
+	return fmt.Sprintf("http://admin:adminpw@localhost:%d", rootPort)
+}
+
+func getRootServer(t *testing.T) *Server {
+	return getServer(rootPort, rootDir, "", -1, t)
+}
+
+func getIntermediateServer(idx int, t *testing.T) *Server {
+	return getServer(
+		intermediatePort,
+		path.Join(intermediateDir, strconv.Itoa(idx)),
+		getRootServerURL(),
+		-1,
+		t)
+}
+
 func getServer(port int, home, parentURL string, maxEnroll int, t *testing.T) *Server {
 	if home != testdataDir {
 		err := os.RemoveAll(home)
@@ -2494,6 +2521,10 @@ func getServer(port int, home, parentURL string, maxEnroll int, t *testing.T) *S
 
 func getRootClient() *Client {
 	return getTestClient(rootPort)
+}
+
+func getIntermediateClient() *Client {
+	return getTestClient(intermediatePort)
 }
 
 func getTestClient(port int) *Client {
@@ -2866,8 +2897,8 @@ func TestPrometheusMetricsE2E(t *testing.T) {
 
 	gt.Expect(body).To(ContainSubstring(`# HELP api_request_count Number of requests made to an API`))
 	gt.Expect(body).To(ContainSubstring(`# TYPE api_request_count counter`))
-	gt.Expect(body).To(ContainSubstring(`api_request_count{api_name="enroll",ca_name="ca",status_code="201"} 1`))
-	gt.Expect(body).To(ContainSubstring(`api_request_count{api_name="enroll",ca_name="ca",status_code="401"} 1`))
+	gt.Expect(body).To(ContainSubstring(`api_request_count{api_name="enroll",ca_name="ca",status_code="201"} 1.0`))
+	gt.Expect(body).To(ContainSubstring(`api_request_count{api_name="enroll",ca_name="ca",status_code="401"} 1.0`))
 	gt.Expect(body).To(ContainSubstring(`# HELP api_request_duration Time taken in seconds for the request to an API to be completed`))
 	gt.Expect(body).To(ContainSubstring(`# TYPE api_request_duration histogram`))
 	gt.Expect(body).To(ContainSubstring(`api_request_duration_bucket{api_name="enroll",ca_name="ca",status_code="201",le="0.005"}`))
@@ -2877,13 +2908,13 @@ func TestPrometheusMetricsE2E(t *testing.T) {
 	gt.Expect(body).To(ContainSubstring(`api_request_duration_bucket{api_name="enroll",ca_name="ca",status_code="201",le="0.1"}`))
 	gt.Expect(body).To(ContainSubstring(`api_request_duration_bucket{api_name="enroll",ca_name="ca",status_code="201",le="0.25"}`))
 	gt.Expect(body).To(ContainSubstring(`api_request_duration_bucket{api_name="enroll",ca_name="ca",status_code="201",le="0.5"}`))
-	gt.Expect(body).To(ContainSubstring(`api_request_duration_bucket{api_name="enroll",ca_name="ca",status_code="201",le="1"}`))
+	gt.Expect(body).To(ContainSubstring(`api_request_duration_bucket{api_name="enroll",ca_name="ca",status_code="201",le="1.0"}`))
 	gt.Expect(body).To(ContainSubstring(`api_request_duration_bucket{api_name="enroll",ca_name="ca",status_code="201",le="2.5"}`))
-	gt.Expect(body).To(ContainSubstring(`api_request_duration_bucket{api_name="enroll",ca_name="ca",status_code="201",le="5"}`))
-	gt.Expect(body).To(ContainSubstring(`api_request_duration_bucket{api_name="enroll",ca_name="ca",status_code="201",le="10"}`))
+	gt.Expect(body).To(ContainSubstring(`api_request_duration_bucket{api_name="enroll",ca_name="ca",status_code="201",le="5.0"}`))
+	gt.Expect(body).To(ContainSubstring(`api_request_duration_bucket{api_name="enroll",ca_name="ca",status_code="201",le="10.0"}`))
 	gt.Expect(body).To(ContainSubstring(`api_request_duration_bucket{api_name="enroll",ca_name="ca",status_code="201",le="+Inf"}`))
 	gt.Expect(body).To(ContainSubstring(`api_request_duration_sum{api_name="enroll",ca_name="ca",status_code="201"}`))
-	gt.Expect(body).To(ContainSubstring(`api_request_duration_count{api_name="enroll",ca_name="ca",status_code="201"} 1`))
+	gt.Expect(body).To(ContainSubstring(`api_request_duration_count{api_name="enroll",ca_name="ca",status_code="201"} 1.0`))
 	gt.Expect(body).To(ContainSubstring(`api_request_duration_bucket{api_name="enroll",ca_name="ca",status_code="401",le="0.005"}`))
 	gt.Expect(body).To(ContainSubstring(`api_request_duration_bucket{api_name="enroll",ca_name="ca",status_code="401",le="0.01"}`))
 	gt.Expect(body).To(ContainSubstring(`api_request_duration_bucket{api_name="enroll",ca_name="ca",status_code="401",le="0.025"}`))
@@ -2891,39 +2922,39 @@ func TestPrometheusMetricsE2E(t *testing.T) {
 	gt.Expect(body).To(ContainSubstring(`api_request_duration_bucket{api_name="enroll",ca_name="ca",status_code="401",le="0.1"}`))
 	gt.Expect(body).To(ContainSubstring(`api_request_duration_bucket{api_name="enroll",ca_name="ca",status_code="401",le="0.25"}`))
 	gt.Expect(body).To(ContainSubstring(`api_request_duration_bucket{api_name="enroll",ca_name="ca",status_code="401",le="0.5"}`))
-	gt.Expect(body).To(ContainSubstring(`api_request_duration_bucket{api_name="enroll",ca_name="ca",status_code="401",le="1"}`))
+	gt.Expect(body).To(ContainSubstring(`api_request_duration_bucket{api_name="enroll",ca_name="ca",status_code="401",le="1.0"}`))
 	gt.Expect(body).To(ContainSubstring(`api_request_duration_bucket{api_name="enroll",ca_name="ca",status_code="401",le="2.5"}`))
-	gt.Expect(body).To(ContainSubstring(`api_request_duration_bucket{api_name="enroll",ca_name="ca",status_code="401",le="5"}`))
-	gt.Expect(body).To(ContainSubstring(`api_request_duration_bucket{api_name="enroll",ca_name="ca",status_code="401",le="10"}`))
+	gt.Expect(body).To(ContainSubstring(`api_request_duration_bucket{api_name="enroll",ca_name="ca",status_code="401",le="5.0"}`))
+	gt.Expect(body).To(ContainSubstring(`api_request_duration_bucket{api_name="enroll",ca_name="ca",status_code="401",le="10.0"}`))
 	gt.Expect(body).To(ContainSubstring(`api_request_duration_bucket{api_name="enroll",ca_name="ca",status_code="401",le="+Inf"}`))
 	gt.Expect(body).To(ContainSubstring(`api_request_duration_sum{api_name="enroll",ca_name="ca",status_code="401"}`))
-	gt.Expect(body).To(ContainSubstring(`api_request_duration_count{api_name="enroll",ca_name="ca",status_code="401"} 1`))
+	gt.Expect(body).To(ContainSubstring(`api_request_duration_count{api_name="enroll",ca_name="ca",status_code="401"} 1.0`))
 	gt.Expect(body).To(ContainSubstring(`# HELP db_api_request_count Number of requests made to a database API`))
 	gt.Expect(body).To(ContainSubstring(`# TYPE db_api_request_count counter`))
-	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="Commit",func_name="CreateTable"} 1`))
-	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="Commit",func_name="Migration"} 1`))
-	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="Exec",func_name="CreateAffiliationsTable"} 2`))
-	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="Exec",func_name="CreateCertificatesTable"} 2`))
-	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="Exec",func_name="CreateCredentialsTable"} 1`))
-	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="Exec",func_name="CreateNoncesTable"} 1`))
-	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="Exec",func_name="CreatePropertiesTable"} 2`))
-	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="Exec",func_name="CreateRevocationAuthorityTable"} 1`))
-	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="Exec",func_name="CreateUsersTable"} 3`))
-	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="Exec",func_name="IncrementIncorrectPasswordAttempts"} 1`))
-	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="Exec",func_name="InsertAffiliation"} 11`))
-	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="Exec",func_name="LoginComplete"} 1`))
-	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="Exec",func_name="MigrateAffiliationsTable"} 4`))
-	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="Exec",func_name="MigrateCertificatesTable"} 4`))
-	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="Exec",func_name="MigrateUsersTable"} 7`))
-	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="Exec",func_name="ResetIncorrectLoginAttempts"} 1`))
-	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="Get",func_name="GetProperty"} 12`))
-	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="Get",func_name="GetUser"} 5`))
-	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="Get",func_name="ResetIncorrectLoginAttempts"} 1`))
-	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="NamedExec",func_name="AddRAInfo"} 1`))
-	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="NamedExec",func_name="InsertCertificate"} 1`))
-	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="NamedExec",func_name="InsertUser"} 1`))
-	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="Queryx",func_name="GetUserLessThanLevel"} 1`))
-	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="Select",func_name="GetRAInfo"} 1`))
+	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="Commit",func_name="CreateTable"} 1.0`))
+	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="Commit",func_name="Migration"} 1.0`))
+	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="Exec",func_name="CreateAffiliationsTable"} 2.0`))
+	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="Exec",func_name="CreateCertificatesTable"} 2.0`))
+	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="Exec",func_name="CreateCredentialsTable"} 1.0`))
+	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="Exec",func_name="CreateNoncesTable"} 1.0`))
+	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="Exec",func_name="CreatePropertiesTable"} 2.0`))
+	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="Exec",func_name="CreateRevocationAuthorityTable"} 1.0`))
+	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="Exec",func_name="CreateUsersTable"} 3.0`))
+	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="Exec",func_name="IncrementIncorrectPasswordAttempts"} 1.0`))
+	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="Exec",func_name="InsertAffiliation"} 11.0`))
+	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="Exec",func_name="LoginComplete"} 1.0`))
+	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="Exec",func_name="MigrateAffiliationsTable"} 4.0`))
+	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="Exec",func_name="MigrateCertificatesTable"} 4.0`))
+	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="Exec",func_name="MigrateUsersTable"} 7.0`))
+	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="Exec",func_name="ResetIncorrectLoginAttempts"} 1.0`))
+	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="Get",func_name="GetProperty"} 12.0`))
+	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="Get",func_name="GetUser"} 5.0`))
+	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="Get",func_name="ResetIncorrectLoginAttempts"} 1.0`))
+	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="NamedExec",func_name="AddRAInfo"} 1.0`))
+	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="NamedExec",func_name="InsertCertificate"} 1.0`))
+	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="NamedExec",func_name="InsertUser"} 1.0`))
+	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="Queryx",func_name="GetUserLessThanLevel"} 1.0`))
+	gt.Expect(body).To(ContainSubstring(`db_api_request_count{ca_name="ca",dbapi_name="Select",func_name="GetRAInfo"} 1.0`))
 	gt.Expect(body).To(ContainSubstring(`# HELP db_api_request_duration Time taken in seconds for the request to a database API to be completed`))
 	gt.Expect(body).To(ContainSubstring(`# TYPE db_api_request_duration histogram`))
 	gt.Expect(body).To(ContainSubstring(`db_api_request_duration_bucket{ca_name="ca",dbapi_name="Commit",func_name="CreateTable",le="0.5"}`))

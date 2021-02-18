@@ -14,9 +14,9 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"github.com/tw-bc-group/net-go-gm/http"
 	"io/ioutil"
 	"math/big"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -96,20 +96,20 @@ func TestECCreateToken(t *testing.T) {
 
 func TestDecodeToken(t *testing.T) {
 	token := "x.y.z"
-	_, _, _, err := decodeToken(token)
+	_, _, _, err := DecodeToken(token)
 	assert.Error(t, err, "Decode should fail if the token has more than two parts")
 
 	token = "x"
-	_, _, _, err = decodeToken(token)
+	_, _, _, err = DecodeToken(token)
 	assert.Error(t, err, "Decode should fail if the token has less than two parts")
 
 	token = "x.y"
-	_, _, _, err = decodeToken(token)
+	_, _, _, err = DecodeToken(token)
 	assert.Error(t, err, "Decode should fail if the 1st part of the token is not in base64 encoded format")
 
 	fakecert := B64Encode([]byte("hello"))
 	token = fakecert + ".y"
-	_, _, _, err = decodeToken(token)
+	_, _, _, err = DecodeToken(token)
 	assert.Error(t, err, "Decode should fail if the 1st part of the token is not base64 bytes of a X509 cert")
 }
 

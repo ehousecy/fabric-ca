@@ -7,6 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 package api
 
 import (
+	"math/big"
 	"time"
 
 	"github.com/cloudflare/cfssl/csr"
@@ -126,6 +127,43 @@ type RevokedCert struct {
 	Serial string
 	// AKI of the revoked certificate
 	AKI string
+}
+
+// GetTCertBatchRequest is input provided to identity.GetTCertBatch
+type GetTCertBatchRequest struct {
+	// Number of TCerts in the batch.
+	Count int `json:"count"`
+	// The attribute names whose names and values are to be sealed in the issued TCerts.
+	AttrNames []string `json:"attr_names,omitempty"`
+	// EncryptAttrs denotes whether to encrypt attribute values or not.
+	// When set to true, each issued TCert in the batch will contain encrypted attribute values.
+	EncryptAttrs bool `json:"encrypt_attrs,omitempty"`
+	// Certificate Validity Period.  If specified, the value used
+	// is the minimum of this value and the configured validity period
+	// of the TCert manager.
+	ValidityPeriod time.Duration `json:"validity_period,omitempty"`
+	// The pre-key to be used for key derivation.
+	PreKey string `json:"prekey"`
+	// DisableKeyDerivation if true disables key derivation so that a TCert is not
+	// cryptographically related to an ECert.  This may be necessary when using an
+	// HSM which does not support the TCert's key derivation function.
+	DisableKeyDerivation bool `json:"disable_kdf,omitempty"`
+	// CAName is the name of the CA to connect to
+	CAName string `json:"caname,omitempty" skip:"true"`
+}
+
+// GetTCertBatchResponse is the return value of identity.GetTCertBatch
+type GetTCertBatchResponse struct {
+	ID     *big.Int  `json:"id"`
+	TS     time.Time `json:"ts"`
+	Key    []byte    `json:"key"`
+	TCerts []TCert   `json:"tcerts"`
+}
+
+// TCert encapsulates a signed transaction certificate and optionally a map of keys
+type TCert struct {
+	Cert []byte            `json:"cert"`
+	Keys map[string][]byte `json:"keys,omitempty"` //base64 encoded string as value
 }
 
 // GetCAInfoRequest is request to get generic CA information
@@ -271,12 +309,12 @@ type AffiliationInfo struct {
 
 // CSRInfo is Certificate Signing Request (CSR) Information
 type CSRInfo struct {
-	CN           string        `json:"CN"`
-	Names        []csr.Name    `json:"names,omitempty"`
-	Hosts        []string      `json:"hosts,omitempty"`
-	KeyRequest   *KeyRequest   `json:"key,omitempty"`
-	CA           *csr.CAConfig `json:"ca,omitempty" hide:"true"`
-	SerialNumber string        `json:"serial_number,omitempty"`
+	CN           string           `json:"CN"`
+	Names        []csr.Name       `json:"names,omitempty"`
+	Hosts        []string         `json:"hosts,omitempty"`
+	KeyRequest   *BasicKeyRequest `json:"key,omitempty"`
+	CA           *csr.CAConfig    `json:"ca,omitempty" hide:"true"`
+	SerialNumber string           `json:"serial_number,omitempty"`
 }
 
 // GetCertificatesRequest represents the request to get certificates from the server
@@ -306,10 +344,10 @@ type TimeRange struct {
 	EndTime   string
 }
 
-// KeyRequest encapsulates size and algorithm for the key to be generated.
+// BasicKeyRequest encapsulates size and algorithm for the key to be generated
 // If ReuseKey is set, reenrollment requests will reuse the existing private
 // key.
-type KeyRequest struct {
+type BasicKeyRequest struct {
 	Algo     string `json:"algo" yaml:"algo" help:"Specify key algorithm"`
 	Size     int    `json:"size" yaml:"size" help:"Specify key size"`
 	ReuseKey bool   `json:"reusekey" yaml:"reusekey" help:"Reuse existing key during reenrollment"`
@@ -349,9 +387,9 @@ func (ar *AttributeRequest) IsRequired() bool {
 	return !ar.Optional
 }
 
-// NewKeyRequest returns the KeyRequest object that is constructed
-// from the object returned by the csr.NewKeyRequest() function
-func NewKeyRequest() *KeyRequest {
+// NewBasicKeyRequest returns the BasicKeyRequest object that is constructed
+// from the object returned by the csr.NewBasicKeyRequest() function
+func NewBasicKeyRequest() *BasicKeyRequest {
 	bkr := csr.NewKeyRequest()
-	return &KeyRequest{Algo: bkr.A, Size: bkr.S}
+	return &BasicKeyRequest{Algo: bkr.A, Size: bkr.S}
 }

@@ -54,6 +54,10 @@ SELECT * FROM users
 INSERT INTO affiliations (name, prekey, level)
 	VALUES (?, ?, ?)`
 
+	deleteAffiliation = `
+DELETE FROM affiliations
+	WHERE (name = ?)`
+
 	deleteAffAndSubAff = `
 DELETE FROM affiliations
 	WHERE (name = ? OR name LIKE ?)`
@@ -442,7 +446,7 @@ func (d *Accessor) GetAffiliation(name string) (spi.Affiliation, error) {
 
 	err = d.db.Get("GetAffiliation", &affiliationRecord, d.db.Rebind(getAffiliationQuery), name)
 	if err != nil {
-		return nil, cadbutil.GetError(err, "affiliation")
+		return nil, cadbutil.GetError(err, "Affiliation")
 	}
 
 	affiliation := spi.NewAffiliation(affiliationRecord.Name, affiliationRecord.Prekey, affiliationRecord.Level)
@@ -463,7 +467,7 @@ func (d *Accessor) GetAffiliationTree(name string) (*user.DbTxResult, error) {
 
 	result, err := d.doTransaction(d.getAffiliationTreeTx, name)
 	if err != nil {
-		return nil, caerrors.NewHTTPErr(409, caerrors.ErrGettingAffiliation, "Failed to complete database transaction: %s", err)
+		return nil, err
 	}
 
 	getResult := result.(*user.DbTxResult)
@@ -587,9 +591,9 @@ func (d *Accessor) GetFilteredUsers(affiliation, types string) (*sqlx.Rows, erro
 	subAffiliation := affiliation + ".%"
 	if util.ListContains(types, "*") { // If type is '*', allowed to get back of all types for requested affiliation
 		query := "SELECT * FROM users WHERE ((affiliation = ?) OR (affiliation LIKE ?))"
-		rows, err := d.db.Queryx("GetFilteredUsers", d.db.Rebind(query), affiliation, subAffiliation)
+		rows, err := d.db.Queryx("GetFilteredUsers", d.db.Rebind(query))
 		if err != nil {
-			return nil, errors.Wrapf(err, "Failed to execute query '%s' for affiliation '%s', subAffiliation '%s',  and types '%s'", query, affiliation, subAffiliation, types)
+			return nil, errors.Wrapf(err, "Failed to execute query '%s' for affiliation '%s' and types '%s'", query, affiliation, types)
 		}
 		return rows, nil
 	}
@@ -626,7 +630,7 @@ func (d *Accessor) ModifyAffiliation(oldAffiliation, newAffiliation string, forc
 	// Check to see if the new affiliation being requested exists in the affiliation table
 	_, err = d.GetAffiliation(newAffiliation)
 	if err == nil {
-		return nil, errors.WithMessagef(err, "Affiliation '%s' already exists", newAffiliation)
+		return nil, caerrors.NewHTTPErr(400, caerrors.ErrUpdateConfigModifyAff, "Affiliation '%s' already exists", newAffiliation)
 	}
 
 	result, err := d.doTransaction(d.modifyAffiliationTx, oldAffiliation, newAffiliation, force, isRegistrar)
