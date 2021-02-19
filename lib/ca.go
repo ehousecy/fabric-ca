@@ -34,6 +34,7 @@ import (
 	"github.com/hyperledger/fabric-ca/lib/attr"
 	"github.com/hyperledger/fabric-ca/lib/attrmgr"
 	"github.com/hyperledger/fabric-ca/lib/caerrors"
+	gmca "github.com/hyperledger/fabric-ca/lib/gm/ca"
 	"github.com/hyperledger/fabric-ca/lib/metadata"
 	"github.com/hyperledger/fabric-ca/lib/server/db"
 	cadb "github.com/hyperledger/fabric-ca/lib/server/db"
@@ -349,7 +350,11 @@ func (ca *CA) getCACert() (cert []byte, err error) {
 			return nil, err
 		}
 		// Call CFSSL to initialize the CA
-		cert, _, err = initca.NewFromSigner(&req, cspSigner)
+		if req.KeyRequest.Algo() == "gmsm2" {
+			cert, _, err = gmca.NewFromSigner(&req, cspSigner)
+		} else {
+			cert, _, err = initca.NewFromSigner(&req, cspSigner)
+		}
 		if err != nil {
 			return nil, errors.WithMessage(err, "Failed to create new CA certificate")
 		}

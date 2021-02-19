@@ -18,9 +18,9 @@ package command
 
 import (
 	"bytes"
-	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	x509GM "github.com/Hyperledger-TWGC/ccs-gm/x509"
 	"net/url"
 	"os"
 	"path"
@@ -138,7 +138,7 @@ func storeCAChain(config *lib.ClientConfig, si *lib.GetCAInfoResponse) error {
 			break
 		}
 
-		cert, err := x509.ParseCertificate(block.Bytes)
+		cert, err := x509GM.ParseCertificate(block.Bytes)
 		if err != nil {
 			return errors.Wrap(err, "Failed to parse certificate in the CA chain")
 		}

@@ -20,8 +20,8 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
-	"crypto/rsa"
 	"fmt"
+	"github.com/Hyperledger-TWGC/ccs-gm/sm2"
 
 	"github.com/hyperledger/fabric/bccsp"
 )
@@ -52,16 +52,30 @@ func (kg *aesKeyGenerator) KeyGen(opts bccsp.KeyGenOpts) (bccsp.Key, error) {
 	return &aesPrivateKey{lowLevelKey, false}, nil
 }
 
-type rsaKeyGenerator struct {
+//定义国密SM2 keygen 结构体，实现 KeyGenerator 接口
+type gmsm2KeyGenerator struct {
+}
+
+func (gm *gmsm2KeyGenerator) KeyGen(opts bccsp.KeyGenOpts) (k bccsp.Key, err error) {
+	//调用 SM2的注册证书方法
+	privKey, err := sm2.GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, fmt.Errorf("Failed generating GMSM2 key  [%s]", err)
+	}
+
+	return &gmsm2PrivateKey{privKey}, nil
+}
+
+//定义国密SM4 keygen 结构体，实现 KeyGenerator 接口
+type gmsm4KeyGenerator struct {
 	length int
 }
 
-func (kg *rsaKeyGenerator) KeyGen(opts bccsp.KeyGenOpts) (bccsp.Key, error) {
-	lowLevelKey, err := rsa.GenerateKey(rand.Reader, int(kg.length))
-
+func (gm *gmsm4KeyGenerator) KeyGen(opts bccsp.KeyGenOpts) (k bccsp.Key, err error) {
+	lowLevelKey, err := GetRandomBytes(int(gm.length))
 	if err != nil {
-		return nil, fmt.Errorf("Failed generating RSA %d key [%s]", kg.length, err)
+		return nil, fmt.Errorf("Failed generating GMSM4 %d key [%s]", gm.length, err)
 	}
 
-	return &rsaPrivateKey{lowLevelKey}, nil
+	return &gmsm4PrivateKey{lowLevelKey, false}, nil
 }

@@ -15,6 +15,11 @@ import (
 	"encoding/hex"
 	"encoding/pem"
 	"fmt"
+	"github.com/Hyperledger-TWGC/ccs-gm/sm2"
+	x509GM "github.com/Hyperledger-TWGC/ccs-gm/x509"
+	"github.com/cloudflare/cfssl/helpers"
+	gmsigner "github.com/hyperledger/fabric-ca/lib/gm/signer"
+	"github.com/hyperledger/fabric/bccsp/sw"
 	"io/ioutil"
 	"strings"
 	_ "time" // for ocspSignerFromConfig
@@ -22,7 +27,6 @@ import (
 	_ "github.com/cloudflare/cfssl/cli" // for ocspSignerFromConfig
 	"github.com/cloudflare/cfssl/config"
 	"github.com/cloudflare/cfssl/csr"
-	"github.com/cloudflare/cfssl/helpers"
 	"github.com/cloudflare/cfssl/log"
 	_ "github.com/cloudflare/cfssl/ocsp" // for ocspSignerFromConfig
 	"github.com/cloudflare/cfssl/signer"
@@ -95,12 +99,17 @@ func BccspBackedSigner(caFile, keyFile string, policy *config.Signing, csp bccsp
 		}
 		cspSigner = signer
 	}
-
-	signer, err := local.NewSigner(cspSigner, parsedCa, signer.DefaultSigAlgo(cspSigner), policy)
+	var backendSigner signer.Signer
+	ecdsaPublicKey, ok := parsedCa.PublicKey.(*ecdsa.PublicKey)
+	if ok && ecdsaPublicKey.Curve == sm2.P256() {
+		backendSigner, err = gmsigner.NewSigner(cspSigner, parsedCa, x509GM.SM2WithSM3, policy)
+	} else {
+		backendSigner, err = local.NewSigner(cspSigner, parsedCa, signer.DefaultSigAlgo(cspSigner), policy)
+	}
 	if err != nil {
 		return nil, errors.Wrap(err, "Failed to create new signer")
 	}
-	return signer, nil
+	return backendSigner, nil
 }
 
 // getBCCSPKeyOpts generates a key as specified in the request.
@@ -136,6 +145,8 @@ func getBCCSPKeyOpts(kr *csr.KeyRequest, ephemeral bool) (opts bccsp.KeyGenOpts,
 		default:
 			return nil, errors.Errorf("Invalid ECDSA key size: %d", kr.Size())
 		}
+	case "gmsm2":
+		return &bccsp.GMSM2KeyGenOpts{Temporary: ephemeral}, nil
 	default:
 		return nil, errors.Errorf("Invalid algorithm: %s", kr.Algo())
 	}
@@ -177,14 +188,21 @@ func GetSignerFromCertFile(certFile string, csp bccsp.BCCSP) (bccsp.Key, crypto.
 	if err != nil {
 		return nil, nil, nil, errors.Wrapf(err, "Could not read certFile '%s'", certFile)
 	}
+
 	// Parse certificate
-	parsedCa, err := helpers.ParseCertificatePEM(certBytes)
+	var x509Cert *x509.Certificate
+	x509GMCert, err := sw.ReadCertificateFromMem(certBytes)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil,nil,nil,err
+	}
+	if x509GMCert.SignatureAlgorithm == x509GM.SM2WithSM3{
+		x509Cert = sw.ParseSm2Certificate2X509(x509GMCert)
+	}else{
+		x509Cert, err = helpers.ParseCertificatePEM(certBytes)
 	}
 	// Get the signer from the cert
-	key, cspSigner, err := GetSignerFromCert(parsedCa, csp)
-	return key, cspSigner, parsedCa, err
+	key, cspSigner, err := GetSignerFromCert(x509Cert, csp)
+	return key, cspSigner, x509Cert, err
 }
 
 // BCCSPKeyRequestGenerate generates keys through BCCSP
@@ -212,13 +230,20 @@ func ImportBCCSPKeyFromPEM(keyFile string, myCSP bccsp.BCCSP, temporary bool) (b
 	if err != nil {
 		return nil, err
 	}
-	key, err := utils.PEMtoPrivateKey(keyBuff, nil)
+	key, err := utils.PEMToPrivateKey(keyBuff, nil)
 	if err != nil {
 		return nil, errors.WithMessage(err, fmt.Sprintf("Failed parsing private key from %s", keyFile))
 	}
-	switch key := key.(type) {
+	switch key.(type) {
+	case *sm2.PrivateKey:
+		block, _ := pem.Decode(keyBuff)
+		priv, err := myCSP.KeyImport(block.Bytes, &bccsp.GMSM2PrivateKeyImportOpts{Temporary: temporary})
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert SM2 private key from %s: %s", keyFile, err.Error())
+		}
+		return priv, nil
 	case *ecdsa.PrivateKey:
-		priv, err := utils.PrivateKeyToDER(key)
+		priv, err := utils.PrivateKeyToDER(key.(*ecdsa.PrivateKey))
 		if err != nil {
 			return nil, errors.WithMessage(err, fmt.Sprintf("Failed to convert ECDSA private key for '%s'", keyFile))
 		}
