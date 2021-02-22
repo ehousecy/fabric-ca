@@ -15,6 +15,9 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"github.com/Hyperledger-TWGC/ccs-gm/sm2"
+	x509GM "github.com/Hyperledger-TWGC/ccs-gm/x509"
+	"github.com/hyperledger/fabric/bccsp/sw"
 	"io"
 	"io/ioutil"
 	"math/big"
@@ -155,7 +158,7 @@ func CreateToken(csp bccsp.BCCSP, cert []byte, key bccsp.Key, method, uri string
 				return "", err
 			}
 	*/
-	case *ecdsa.PublicKey:
+	case *ecdsa.PublicKey,*sm2.PublicKey:
 		token, err = GenECDSAToken(csp, cert, key, method, uri, body)
 		if err != nil {
 			return "", err
@@ -413,11 +416,11 @@ func GetX509CertificateFromPEM(cert []byte) (*x509.Certificate, error) {
 	if block == nil {
 		return nil, errors.New("Failed to PEM decode certificate")
 	}
-	x509Cert, err := x509.ParseCertificate(block.Bytes)
+	x509GMCert, err := x509GM.ParseCertificate(block.Bytes)
 	if err != nil {
 		return nil, errors.Wrap(err, "Error parsing certificate")
 	}
-	return x509Cert, nil
+	return sw.ParseSm2Certificate2X509(x509GMCert), nil
 }
 
 // GetX509CertificatesFromPEM returns X509 certificates from bytes in PEM format

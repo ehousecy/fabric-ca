@@ -1,27 +1,26 @@
-# Fabric CA Developer's Guide
-
-This is the Developer's Guide for Fabric CA, which is a Certificate Authority for Hyperledger Fabric.
-
-See [User's Guide for Fabric CA](https://hyperledger-fabric-ca.readthedocs.io) for information on how to use Fabric CA.
-
-## Prerequisites
-
-* Go 1.13+ installation or later
-* **GOPATH** environment variable is set correctly
-* docker version 17.03 or later
-* docker-compose version 1.11 or later
-* A Linux Foundation ID  (see [create a Linux Foundation ID](https://identity.linuxfoundation.org/))
-
+## Hyperledger Fabric-CA 国密改造
+>> 这是基于fabric-ca修改的支持国密算法的fabric，已通过命令行完成网络部署以及链码操作测试。
 
 ## 改造思路
-- [x] go.mod新增国密库
-- [x] 替换依赖库x509/tls
+- [] 增加国密版ca/signer
+- [] 根据算法选择不同的signer
+- [] x509证书适配
 
-## Continuous Integration
+## 待办事项
+- [] 目前只测试了register/enroll/reenroll,后续要做更多测试
+- [] tls部分国密支持
 
-Please have a look at [Continuous Integration Process](docs/source/ca-ci.md)
+## 使用手册
 
-
-## License <a name="license"></a>
-
-Hyperledger Project source code files are made available under the Apache License, Version 2.0 (Apache-2.0), located in the [LICENSE](LICENSE) file. Hyperledger Project documentation files are made available under the Creative Commons Attribution 4.0 International License (CC-BY-4.0), available at http://creativecommons.org/licenses/by/4.0/.
+### 国密模式
+- fabric-ca-server
+```
+// 启动时重写环境变量如下()：
+FABRIC_CA_SERVER_CSR_KEYREQUEST_ALGO=gmsm2 //默认是ecdsa
+FABRIC_CA_SERVER_CSR_KEYREQUEST_SIZE=256   //默认是256
+```
+- fabric-ca-client
+```
+## register/enroll/reenroll... 需指定keyRequest的算法和大小(默认是ecdsa/256)
+--csr.keyrequest.algo gmsm2 --csr.keyrequest.size 256
+```

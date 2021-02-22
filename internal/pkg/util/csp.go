@@ -101,7 +101,7 @@ func BccspBackedSigner(caFile, keyFile string, policy *config.Signing, csp bccsp
 	}
 	var backendSigner signer.Signer
 	ecdsaPublicKey, ok := parsedCa.PublicKey.(*ecdsa.PublicKey)
-	if ok && ecdsaPublicKey.Curve == sm2.P256() {
+	if !ok || ecdsaPublicKey.Curve == sm2.P256() {
 		backendSigner, err = gmsigner.NewSigner(cspSigner, parsedCa, x509GM.SM2WithSM3, policy)
 	} else {
 		backendSigner, err = local.NewSigner(cspSigner, parsedCa, signer.DefaultSigAlgo(cspSigner), policy)

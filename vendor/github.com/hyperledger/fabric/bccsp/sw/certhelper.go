@@ -155,6 +155,48 @@ func ParseX509CertificateRequest2Sm2(x509req *x509.CertificateRequest) *x509GM.C
 	return sm2req
 }
 
+// X509 证书请求转换 SM2证书请求
+func ParseSM2CertificateRequest2X509(x509req *x509GM.CertificateRequest) *x509.CertificateRequest {
+	sm2req := &x509.CertificateRequest{
+		Raw:                      x509req.Raw,                      // Complete ASN.1 DER content (CSR, signature algorithm and signature).
+		RawTBSCertificateRequest: x509req.RawTBSCertificateRequest, // Certificate request info part of raw ASN.1 DER content.
+		RawSubjectPublicKeyInfo:  x509req.RawSubjectPublicKeyInfo,  // DER encoded SubjectPublicKeyInfo.
+		RawSubject:               x509req.RawSubject,               // DER encoded Subject.
+
+		Version:            x509req.Version,
+		Signature:          x509req.Signature,
+		SignatureAlgorithm: x509.SignatureAlgorithm(x509req.SignatureAlgorithm),
+
+		PublicKeyAlgorithm: x509.PublicKeyAlgorithm(x509req.PublicKeyAlgorithm),
+		PublicKey:          x509req.PublicKey,
+
+		Subject: x509req.Subject,
+
+		// Attributes is the dried husk of a bug and shouldn't be used.
+		Attributes: x509req.Attributes,
+
+		// Extensions contains raw X.509 extensions. When parsing CSRs, this
+		// can be used to extract extensions that are not parsed by this
+		// package.
+		Extensions: x509req.Extensions,
+
+		// ExtraExtensions contains extensions to be copied, raw, into any
+		// marshaled CSR. Values override any extensions that would otherwise
+		// be produced based on the other fields but are overridden by any
+		// extensions specified in Attributes.
+		//
+		// The ExtraExtensions field is not populated when parsing CSRs, see
+		// Extensions.
+		ExtraExtensions: x509req.ExtraExtensions,
+
+		// Subject Alternate Name values.
+		DNSNames:       x509req.DNSNames,
+		EmailAddresses: x509req.EmailAddresses,
+		IPAddresses:    x509req.IPAddresses,
+	}
+	return sm2req
+}
+
 // X509证书格式转换为 SM2证书格式
 func ParseX509Certificate2Sm2(x509Cert *x509.Certificate) *x509GM.Certificate {
 	sm2cert := &x509GM.Certificate{
@@ -219,6 +261,75 @@ func ParseX509Certificate2Sm2(x509Cert *x509.Certificate) *x509GM.Certificate {
 	}
 	for _, val := range x509Cert.ExtKeyUsage {
 		sm2cert.ExtKeyUsage = append(sm2cert.ExtKeyUsage, x509GM.ExtKeyUsage(val))
+	}
+
+	return sm2cert
+}
+
+// X509证书格式转换为 SM2证书格式
+func ParseSm2CertificateRequest2X509(x509Cert *x509GM.Certificate) *x509.Certificate {
+	sm2cert := &x509.Certificate{
+		Raw:                     x509Cert.Raw,
+		RawTBSCertificate:       x509Cert.RawTBSCertificate,
+		RawSubjectPublicKeyInfo: x509Cert.RawSubjectPublicKeyInfo,
+		RawSubject:              x509Cert.RawSubject,
+		RawIssuer:               x509Cert.RawIssuer,
+
+		Signature:          x509Cert.Signature,
+		SignatureAlgorithm: x509.SignatureAlgorithm(x509Cert.SignatureAlgorithm),
+
+		PublicKeyAlgorithm: x509.PublicKeyAlgorithm(x509Cert.PublicKeyAlgorithm),
+		PublicKey:          x509Cert.PublicKey,
+
+		Version:      x509Cert.Version,
+		SerialNumber: x509Cert.SerialNumber,
+		Issuer:       x509Cert.Issuer,
+		Subject:      x509Cert.Subject,
+		NotBefore:    x509Cert.NotBefore,
+		NotAfter:     x509Cert.NotAfter,
+		KeyUsage:     x509.KeyUsage(x509Cert.KeyUsage),
+
+		Extensions: x509Cert.Extensions,
+
+		ExtraExtensions: x509Cert.ExtraExtensions,
+
+		UnhandledCriticalExtensions: x509Cert.UnhandledCriticalExtensions,
+
+		//ExtKeyUsage:	[]x509.ExtKeyUsage(x509Cert.ExtKeyUsage) ,
+		UnknownExtKeyUsage: x509Cert.UnknownExtKeyUsage,
+
+		BasicConstraintsValid: x509Cert.BasicConstraintsValid,
+		IsCA:                  x509Cert.IsCA,
+		MaxPathLen:            x509Cert.MaxPathLen,
+		// MaxPathLenZero indicates that BasicConstraintsValid==true and
+		// MaxPathLen==0 should be interpreted as an actual maximum path length
+		// of zero. Otherwise, that combination is interpreted as MaxPathLen
+		// not being set.
+		MaxPathLenZero: x509Cert.MaxPathLenZero,
+
+		SubjectKeyId:   x509Cert.SubjectKeyId,
+		AuthorityKeyId: x509Cert.AuthorityKeyId,
+
+		// RFC 5280, 4.2.2.1 (Authority Information Access)
+		OCSPServer:            x509Cert.OCSPServer,
+		IssuingCertificateURL: x509Cert.IssuingCertificateURL,
+
+		// Subject Alternate Name values
+		DNSNames:       x509Cert.DNSNames,
+		EmailAddresses: x509Cert.EmailAddresses,
+		IPAddresses:    x509Cert.IPAddresses,
+
+		// Name constraints
+		PermittedDNSDomainsCritical: x509Cert.PermittedDNSDomainsCritical,
+		PermittedDNSDomains:         x509Cert.PermittedDNSDomains,
+
+		// CRL Distribution Points
+		CRLDistributionPoints: x509Cert.CRLDistributionPoints,
+
+		PolicyIdentifiers: x509Cert.PolicyIdentifiers,
+	}
+	for _, val := range x509Cert.ExtKeyUsage {
+		sm2cert.ExtKeyUsage = append(sm2cert.ExtKeyUsage, x509.ExtKeyUsage(val))
 	}
 
 	return sm2cert

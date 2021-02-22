@@ -14,6 +14,10 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"github.com/Hyperledger-TWGC/ccs-gm/sm2"
+	x509GM "github.com/Hyperledger-TWGC/ccs-gm/x509"
+	gmsigner "github.com/hyperledger/fabric-ca/lib/gm/signer"
+	"github.com/hyperledger/fabric/bccsp/sw"
 	"io/ioutil"
 	"os"
 	"path"
@@ -477,14 +481,29 @@ func (ca *CA) initConfig() (err error) {
 // VerifyCertificate verifies that 'cert' was issued by this CA
 // Return nil if successful; otherwise, return an error.
 func (ca *CA) VerifyCertificate(cert *x509.Certificate) error {
-	opts, err := ca.getVerifyOptions()
-	if err != nil {
-		return errors.WithMessage(err, "Failed to get verify options")
+	switch cert.PublicKey.(type) {
+	case *ecdsa.PublicKey:
+		opts, err := ca.getVerifyOptions()
+		if err != nil {
+			return errors.WithMessage(err, "Failed to get verify options")
+		}
+		_, err = cert.Verify(*opts)
+		if err != nil {
+			return errors.WithMessage(err, "Failed to verify certificate")
+		}
+	case *sm2.PublicKey:
+		opts, err := ca.getGMVerifyOptions()
+		if err != nil {
+			return errors.WithMessage(err, "Failed to get verify options")
+		}
+		_, err = sw.ParseX509Certificate2Sm2(cert).Verify(*opts)
+		if err != nil {
+			return errors.WithMessage(err, "Failed to verify certificate")
+		}
+	default:
+		return errors.Errorf("Unsupport publicKey type : %s",cert.PublicKey)
 	}
-	_, err = cert.Verify(*opts)
-	if err != nil {
-		return errors.WithMessage(err, "Failed to verify certificate")
-	}
+
 	return nil
 }
 
@@ -540,6 +559,35 @@ func (ca *CA) getVerifyOptions() (*x509.VerifyOptions, error) {
 		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
 	}
 	return ca.verifyOptions, nil
+}
+
+func (ca *CA) getGMVerifyOptions() (*x509GM.VerifyOptions, error) {
+	chain, err := ca.getCAChain()
+	if err != nil {
+		return nil, err
+	}
+	block, rest := pem.Decode(chain)
+	if block == nil {
+		return nil, errors.New("No root certificate was found")
+	}
+	rootCert, err := x509GM.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to parse root certificate: %s", err)
+	}
+	rootPool := x509GM.NewCertPool()
+	rootPool.AddCert(rootCert)
+	var intPool *x509GM.CertPool
+	if len(rest) > 0 {
+		intPool = x509GM.NewCertPool()
+		if !intPool.AppendCertsFromPEM(rest) {
+			return nil, errors.New("Failed to add intermediate PEM certificates")
+		}
+	}
+	return &x509GM.VerifyOptions{
+		Roots:         rootPool,
+		Intermediates: intPool,
+		KeyUsages:     []x509GM.ExtKeyUsage{x509GM.ExtKeyUsageAny},
+	}, nil
 }
 
 // Initialize the database for the CA
@@ -1054,8 +1102,15 @@ func (ca *CA) getCACertExpiry() (time.Time, time.Time, error) {
 			notBefore = cacert.NotBefore
 		}
 	} else {
-		log.Errorf("Not expected condition as the enrollSigner can only be cfssl/signer/local/Signer")
-		return notBefore, notAfter, errors.New("Unexpected error while getting CA certificate expiration")
+		signer := ca.enrollSigner.(*gmsigner.GMSigner)
+		cacert, err := signer.Certificate("", "ca")
+		if err != nil {
+			log.Errorf("Failed to get CA certificate for CA %s: %s", ca.Config.CA.Name, err)
+			return notBefore, notAfter, err
+		} else if cacert != nil {
+			notAfter = cacert.NotAfter
+			notBefore = cacert.NotBefore
+		}
 	}
 	return notBefore, notAfter, nil
 }

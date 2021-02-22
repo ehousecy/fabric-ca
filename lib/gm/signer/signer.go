@@ -3,7 +3,6 @@ package signer
 import (
 	"bytes"
 	"crypto"
-	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/sha1"
 	"crypto/x509"
@@ -309,15 +308,10 @@ func parseCertificateRequest(s signer.Signer, csrBytes []byte) (template *x509GM
 		return
 	}
 
-	ecdsaPublicKey, ok := csrv.PublicKey.(*ecdsa.PublicKey)
-	if !ok {
-		return nil, errors.Errorf("need ecdsa public key")
-	}
-
 	template = &x509GM.Certificate{
 		Subject:            csrv.Subject,
 		PublicKeyAlgorithm: csrv.PublicKeyAlgorithm,
-		PublicKey:          &sm2.PublicKey{Curve: sm2.P256(), X: ecdsaPublicKey.X, Y: ecdsaPublicKey.Y},
+		PublicKey:          csrv.PublicKey,
 		SignatureAlgorithm: x509GM.SignatureAlgorithm(s.SigAlgo()),
 		DNSNames:           csrv.DNSNames,
 		IPAddresses:        csrv.IPAddresses,
@@ -752,7 +746,7 @@ func (s *GMSigner) Sign(req signer.SignRequest) (cert []byte, err error) {
 	// Get the AKI from signedCert.  This is required to support Go 1.9+.
 	// In prior versions of Go, x509.CreateCertificate updated the
 	// AuthorityKeyId of certTBS.
-	parsedCert, _ := x509GM.ParseCertificate(signedCert)
+	parsedCert, _ := sw.ReadCertificateFromMem(signedCert)
 	if s.dbAccessor != nil {
 		var certRecord = certdb.CertificateRecord{
 			Serial: certTBS.SerialNumber.String(),
