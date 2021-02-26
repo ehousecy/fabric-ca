@@ -10,11 +10,10 @@
   - [x] 获取ca/ca证书时Signer的选择
   - [x] 证书签名请求时Signer的选择
 - [x] x509证书适配及转换
+- [x] tls国密支持
+  - [x] tls.config配置
+  - [x] net/http国密支持
 - [x] 代码适配
-
-## 待办事项
-- [ ] 目前只测试了register/enroll/reenroll,后续要做更多测试
-- [ ] tls部分国密支持
 
 ## 使用手册
 

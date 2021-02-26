@@ -9,7 +9,7 @@ package x509
 import (
 	"encoding/hex"
 	"fmt"
-	"net/http"
+	"github.com/Hyperledger-TWGC/net-go-gm/http"
 
 	"github.com/cloudflare/cfssl/log"
 	"github.com/hyperledger/fabric-ca/internal/pkg/api"

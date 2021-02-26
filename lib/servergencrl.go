@@ -7,15 +7,16 @@ SPDX-License-Identifier: Apache-2.0
 package lib
 
 import (
+	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
+	"github.com/hyperledger/fabric/bccsp/sw"
 	"io/ioutil"
 	"math/big"
 	"time"
 
-	"github.com/cloudflare/cfssl/crl"
 	"github.com/cloudflare/cfssl/log"
 	"github.com/hyperledger/fabric-ca/internal/pkg/api"
 	"github.com/hyperledger/fabric-ca/internal/pkg/util"
@@ -134,7 +135,8 @@ func genCRL(ca *CA, req api.GenCRLRequest) ([]byte, error) {
 		revokedCerts = append(revokedCerts, revokedCert)
 	}
 
-	crl, err := crl.CreateGenericCRL(revokedCerts, signer, caCert, expiry)
+	//crl, err := crl.CreateGenericCRL(revokedCerts, signer, caCert, expiry)
+	crl,err := sw.ParseX509Certificate2Sm2(caCert).CreateCRL(rand.Reader, signer, revokedCerts, time.Now(), expiry)
 	if err != nil {
 		log.Errorf("Failed to generate CRL for CA '%s': %s", ca.HomeDir, err)
 		return nil, caerrors.NewHTTPErr(500, caerrors.ErrGenCRL, "Failed to generate CRL for CA '%s'", ca.HomeDir)

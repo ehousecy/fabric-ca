@@ -8,7 +8,7 @@ package operations
 
 import (
 	"context"
-	"crypto/tls"
+	"github.com/Hyperledger-TWGC/ccs-gm/tls"
 	"fmt"
 	"io"
 	"net"

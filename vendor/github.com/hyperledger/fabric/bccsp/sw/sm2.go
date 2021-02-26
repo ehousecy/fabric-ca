@@ -25,7 +25,6 @@ import (
 	"github.com/Hyperledger-TWGC/ccs-gm/sm2"
 	"github.com/hyperledger/fabric/bccsp"
 	"math/big"
-
 )
 
 type SM2Signature struct {
@@ -42,7 +41,7 @@ var (
 		elliptic.P256(): new(big.Int).Rsh(elliptic.P256().Params().N, 1),
 		elliptic.P384(): new(big.Int).Rsh(elliptic.P384().Params().N, 1),
 		elliptic.P521(): new(big.Int).Rsh(elliptic.P521().Params().N, 1),
-		sm2.P256():   new(big.Int).Rsh(sm2.P256().Params().N, 1),
+		sm2.P256():      new(big.Int).Rsh(sm2.P256().Params().N, 1),
 	}
 )
 
@@ -166,4 +165,10 @@ func IsLowS(k *ecdsa.PublicKey, s *big.Int) (bool, error) {
 
 	return s.Cmp(halfOrder) != 1, nil
 
+}
+
+type gmsm2Decryptor struct{}
+
+func (*gmsm2Decryptor) Decrypt(k bccsp.Key, ciphertext []byte, opts bccsp.DecrypterOpts) (plaintext []byte, err error) {
+	return sm2.Decrypt(ciphertext,k.(*gmsm2PrivateKey).privKey)
 }

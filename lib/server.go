@@ -8,9 +8,10 @@ package lib
 
 import (
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"fmt"
+	"github.com/Hyperledger-TWGC/ccs-gm/tls"
+	"github.com/Hyperledger-TWGC/ccs-gm/x509"
+	cspDecryptor "github.com/hyperledger/fabric/bccsp/decrypter"
 	"io"
 	"io/ioutil"
 	"net"
@@ -646,10 +647,22 @@ func (s *Server) listenAndServe() (err error) {
 			}
 		}
 
-		cer, err := util.LoadX509KeyPair(c.TLS.CertFile, c.TLS.KeyFile, s.csp)
+		key, cer, err1 := util.LoadX509KeyPair(c.TLS.CertFile, c.TLS.KeyFile, s.csp)
+		if err1 != nil {
+			return err1
+		}
+
+		decrypter, err := cspDecryptor.New(s.csp, key)
 		if err != nil {
 			return err
 		}
+
+		if c.TLS.ClientAuth.Type == "" {
+			c.TLS.ClientAuth.Type = defaultClientAuth
+		}
+
+		enCert := *cer
+		enCert.PrivateKey = decrypter
 
 		if c.TLS.ClientAuth.Type == "" {
 			c.TLS.ClientAuth.Type = defaultClientAuth
@@ -664,20 +677,22 @@ func (s *Server) listenAndServe() (err error) {
 
 		var certPool *x509.CertPool
 		if authType != defaultClientAuth {
-			certPool, err = LoadPEMCertPool(c.TLS.ClientAuth.CertFiles)
+			certPool, err = LoadPEMGMCertPool(c.TLS.ClientAuth.CertFiles)
 			if err != nil {
 				return err
 			}
 		}
 
 		config := &tls.Config{
-			Certificates: []tls.Certificate{*cer},
+			Certificates: []tls.Certificate{*stls.TransformTLSCertificate(cer),*stls.TransformTLSCertificate(&enCert)},
 			ClientAuth:   clientAuth,
 			ClientCAs:    certPool,
-			MinVersion:   tls.VersionTLS12,
-			MaxVersion:   tls.VersionTLS13,
+			MinVersion:   tls.VersionGMSSL,
+			MaxVersion:   tls.VersionTLS12,
 			CipherSuites: stls.DefaultCipherSuites,
 		}
+
+		util.SetTLSConfig(config)
 
 		listener, err = tls.Listen("tcp", addr, config)
 		if err != nil {

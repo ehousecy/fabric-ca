@@ -19,6 +19,9 @@ package tls
 import (
 	"crypto/tls"
 	"crypto/x509"
+	gmtls "github.com/Hyperledger-TWGC/ccs-gm/tls"
+	x509GM "github.com/Hyperledger-TWGC/ccs-gm/x509"
+	"github.com/hyperledger/fabric/bccsp/sw"
 	"io/ioutil"
 	"time"
 
@@ -37,6 +40,8 @@ var DefaultCipherSuites = []uint16{
 	tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
 	tls.TLS_RSA_WITH_AES_128_GCM_SHA256,
 	tls.TLS_RSA_WITH_AES_256_GCM_SHA384,
+	gmtls.GMTLS_SM2_WITH_SM4_SM3,
+	gmtls.GMTLS_ECDHE_SM2_WITH_SM4_SM3,
 }
 
 // ServerTLSConfig defines key material for a TLS server
@@ -84,7 +89,7 @@ func GetClientTLSConfig(cfg *ClientTLSConfig, csp bccsp.BCCSP) (*tls.Config, err
 			return nil, err
 		}
 
-		clientCert, err := util.LoadX509KeyPair(cfg.Client.CertFile, cfg.Client.KeyFile, csp)
+		_, clientCert, err := util.LoadX509KeyPair(cfg.Client.CertFile, cfg.Client.KeyFile, csp)
 		if err != nil {
 			return nil, err
 		}
@@ -113,6 +118,59 @@ func GetClientTLSConfig(cfg *ClientTLSConfig, csp bccsp.BCCSP) (*tls.Config, err
 		Certificates: certs,
 		RootCAs:      rootCAPool,
 	}
+
+	return config, nil
+}
+
+// GetClientTLSConfig creates a tls.Config object from certs and roots
+func GetClientGMTLSConfig(cfg *ClientTLSConfig, csp bccsp.BCCSP) (*gmtls.Config, error) {
+	var certs []gmtls.Certificate
+
+	if csp == nil {
+		csp = factory.GetDefault()
+	}
+
+	log.Debugf("CA Files: %+v\n", cfg.CertFiles)
+	log.Debugf("Client Cert File: %s\n", cfg.Client.CertFile)
+	log.Debugf("Client Key File: %s\n", cfg.Client.KeyFile)
+
+	if cfg.Client.CertFile != "" {
+		err := checkCertDates(cfg.Client.CertFile)
+		if err != nil {
+			return nil, err
+		}
+
+		_,clientCert, err := util.LoadX509KeyPair(cfg.Client.CertFile, cfg.Client.KeyFile, csp)
+		if err != nil {
+			return nil, err
+		}
+
+		certs = append(certs, *TransformTLSCertificate(clientCert))
+	} else {
+		log.Debug("Client TLS certificate and/or key file not provided")
+	}
+	rootCAPool := x509GM.NewCertPool()
+	if len(cfg.CertFiles) == 0 {
+		return nil, errors.New("No trusted root certificates for TLS were provided")
+	}
+
+	for _, cacert := range cfg.CertFiles {
+		caCert, err := ioutil.ReadFile(cacert)
+		if err != nil {
+			return nil, errors.Wrapf(err, "Failed to read '%s'", cacert)
+		}
+		ok := rootCAPool.AppendCertsFromPEM(caCert)
+		if !ok {
+			return nil, errors.Errorf("Failed to process certificate from file %s", cacert)
+		}
+	}
+
+	config := &gmtls.Config{
+		//GMSupport: &gmtls.GMSupport{},
+		Certificates: certs,
+		RootCAs:      rootCAPool,
+	}
+	util.SetTLSConfig(config)
 
 	return config, nil
 }
@@ -192,4 +250,20 @@ func checkCertDates(certFile string) error {
 	}
 
 	return nil
+}
+
+func TransformTLSCertificate(cert *tls.Certificate) *gmtls.Certificate {
+	var leaf *x509GM.Certificate
+
+	if cert.Leaf != nil {
+		leaf = sw.ParseX509Certificate2Sm2(cert.Leaf)
+	}
+
+	return &gmtls.Certificate{
+		Certificate:                 cert.Certificate,
+		PrivateKey:                  cert.PrivateKey,
+		OCSPStaple:                  cert.OCSPStaple,
+		SignedCertificateTimestamps: cert.SignedCertificateTimestamps,
+		Leaf:                        leaf,
+	}
 }

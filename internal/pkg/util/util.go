@@ -16,13 +16,15 @@ import (
 	"encoding/pem"
 	"fmt"
 	"github.com/Hyperledger-TWGC/ccs-gm/sm2"
+	"github.com/Hyperledger-TWGC/ccs-gm/tls"
 	x509GM "github.com/Hyperledger-TWGC/ccs-gm/x509"
+	"github.com/hyperledger/fabric/bccsp/signer"
 	"github.com/hyperledger/fabric/bccsp/sw"
 	"io"
 	"io/ioutil"
 	"math/big"
 	mrand "math/rand"
-	"net/http"
+	"github.com/Hyperledger-TWGC/net-go-gm/http"
 	"net/url"
 	"os"
 	"path"
@@ -771,5 +773,29 @@ func ErrorContains(t *testing.T, err error, contains, msg string, args ...interf
 	}
 	if assert.Error(t, err, msg) {
 		assert.Contains(t, caerrors.Print(err), contains)
+	}
+}
+
+func SetTLSConfig (c *tls.Config)  {
+	isGM := false
+	if len(c.Certificates) > 0 {
+		_, ok := c.Certificates[0].PrivateKey.(*signer.BccspCryptoSigner).Public().(*sm2.PublicKey)
+		if ok {
+			isGM = true
+		}
+	} else {
+		certs := c.RootCAs.GetCerts()
+		if len(certs) > 0 {
+			if _, ok := certs[0].PublicKey.(*sm2.PublicKey); ok {
+				isGM = true
+			}
+		}
+	}
+	if isGM {
+		c.GMSupport = &tls.GMSupport{}
+		c.MinVersion = tls.VersionGMSSL
+	} else {
+		c.GMSupport = nil
+		c.MinVersion = tls.VersionTLS12
 	}
 }

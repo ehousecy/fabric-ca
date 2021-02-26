@@ -1,10 +1,16 @@
-# github.com/Hyperledger-TWGC/ccs-gm v0.1.2-0.20210202011810-d006f903c43e => github.com/ehousecy/ccs-gm v0.1.2-0.20210222080840-906b77c76677
+# github.com/Hyperledger-TWGC/ccs-gm v0.1.2-0.20210202011810-d006f903c43e => github.com/ehousecy/ccs-gm v0.1.2-0.20210226013248-cc995c360aed
 ## explicit
 github.com/Hyperledger-TWGC/ccs-gm/sm2
 github.com/Hyperledger-TWGC/ccs-gm/sm3
 github.com/Hyperledger-TWGC/ccs-gm/sm4
 github.com/Hyperledger-TWGC/ccs-gm/tls
 github.com/Hyperledger-TWGC/ccs-gm/x509
+# github.com/Hyperledger-TWGC/net-go-gm v0.0.0-20200921114008-9f44067b1d7e
+## explicit
+github.com/Hyperledger-TWGC/net-go-gm/http
+github.com/Hyperledger-TWGC/net-go-gm/http/httptrace
+github.com/Hyperledger-TWGC/net-go-gm/http/internal
+github.com/Hyperledger-TWGC/net-go-gm/http/internal/nettrace
 # github.com/Knetic/govaluate v3.0.1-0.20171022003610-9aa49832a739+incompatible
 ## explicit
 github.com/Knetic/govaluate
@@ -20,7 +26,6 @@ github.com/cloudflare/cfssl/certdb/dbconf
 github.com/cloudflare/cfssl/certdb/sql
 github.com/cloudflare/cfssl/cli
 github.com/cloudflare/cfssl/config
-github.com/cloudflare/cfssl/crl
 github.com/cloudflare/cfssl/crypto/pkcs7
 github.com/cloudflare/cfssl/csr
 github.com/cloudflare/cfssl/errors
@@ -81,9 +86,6 @@ github.com/gorilla/handlers
 # github.com/gorilla/mux v1.8.0
 ## explicit
 github.com/gorilla/mux
-# github.com/grantae/certinfo v0.0.0-20170412194111-59d56a35515b
-## explicit
-github.com/grantae/certinfo
 # github.com/hashicorp/hcl v1.0.0
 github.com/hashicorp/hcl
 github.com/hashicorp/hcl/hcl/ast
@@ -95,9 +97,10 @@ github.com/hashicorp/hcl/hcl/token
 github.com/hashicorp/hcl/json/parser
 github.com/hashicorp/hcl/json/scanner
 github.com/hashicorp/hcl/json/token
-# github.com/hyperledger/fabric v1.4.9 => github.com/ehousecy/fabric v1.4.0-rc1.0.20210222083237-a9d9dffd69e8
+# github.com/hyperledger/fabric v1.4.9 => github.com/ehousecy/fabric v1.4.0-rc1.0.20210225104701-ad42c2f58610
 ## explicit
 github.com/hyperledger/fabric/bccsp
+github.com/hyperledger/fabric/bccsp/decrypter
 github.com/hyperledger/fabric/bccsp/factory
 github.com/hyperledger/fabric/bccsp/pkcs11
 github.com/hyperledger/fabric/bccsp/signer
@@ -292,6 +295,9 @@ golang.org/x/net/context/ctxhttp
 golang.org/x/net/html
 golang.org/x/net/html/atom
 golang.org/x/net/html/charset
+golang.org/x/net/http/httpguts
+golang.org/x/net/http/httpproxy
+golang.org/x/net/http2/hpack
 golang.org/x/net/idna
 # golang.org/x/sys v0.0.0-20201015000850-e3ed0017c211
 ## explicit
@@ -372,5 +378,5 @@ gopkg.in/tomb.v1
 gopkg.in/yaml.v2
 # gopkg.in/yaml.v3 v3.0.0-20200313102051-9f266ea9e77c
 gopkg.in/yaml.v3
-# github.com/Hyperledger-TWGC/ccs-gm => github.com/ehousecy/ccs-gm v0.1.2-0.20210222080840-906b77c76677
-# github.com/hyperledger/fabric => github.com/ehousecy/fabric v1.4.0-rc1.0.20210222083237-a9d9dffd69e8
+# github.com/Hyperledger-TWGC/ccs-gm => github.com/ehousecy/ccs-gm v0.1.2-0.20210226013248-cc995c360aed
+# github.com/hyperledger/fabric => github.com/ehousecy/fabric v1.4.0-rc1.0.20210225104701-ad42c2f58610

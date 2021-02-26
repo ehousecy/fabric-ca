@@ -3,12 +3,13 @@ module github.com/hyperledger/fabric-ca
 go 1.15
 
 replace (
-	github.com/Hyperledger-TWGC/ccs-gm => github.com/ehousecy/ccs-gm v0.1.2-0.20210222080840-906b77c76677
-	github.com/hyperledger/fabric => github.com/ehousecy/fabric v1.4.0-rc1.0.20210222083237-a9d9dffd69e8
+	github.com/Hyperledger-TWGC/ccs-gm => github.com/ehousecy/ccs-gm v0.1.2-0.20210226013248-cc995c360aed
+	github.com/hyperledger/fabric => github.com/ehousecy/fabric v1.4.0-rc1.0.20210225104701-ad42c2f58610
 )
 
 require (
 	github.com/Hyperledger-TWGC/ccs-gm v0.1.2-0.20210202011810-d006f903c43e
+	github.com/Hyperledger-TWGC/net-go-gm v0.0.0-20200921114008-9f44067b1d7e
 	github.com/Knetic/govaluate v3.0.1-0.20171022003610-9aa49832a739+incompatible
 	github.com/cloudflare/cfssl v1.4.1
 	github.com/felixge/httpsnoop v1.0.1
@@ -19,7 +20,6 @@ require (
 	github.com/google/certificate-transparency-go v1.0.21
 	github.com/gorilla/handlers v1.5.1
 	github.com/gorilla/mux v1.8.0
-	github.com/grantae/certinfo v0.0.0-20170412194111-59d56a35515b
 	github.com/hyperledger/fabric v1.4.9
 	github.com/hyperledger/fabric-amcl v0.0.0-20200424173818-327c9e2cf77a
 	github.com/hyperledger/fabric-lib-go v1.0.0

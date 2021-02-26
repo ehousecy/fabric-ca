@@ -124,7 +124,7 @@ func testGetSignerFromCertFile(t *testing.T, keyFile, certFile string, mustFail 
 		assert.NotNil(t, cert, "cert  from GetSignerFromCertFile must not be nil")
 	}
 
-	cer, err := LoadX509KeyPair(certFile, keyFile, csp)
+	_, cer, err := LoadX509KeyPair(certFile, keyFile, csp)
 	if mustFail == 2 {
 		assert.Error(t, err, "LoadX509KeyPair should had failed")
 	} else {

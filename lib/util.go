@@ -7,20 +7,22 @@ SPDX-License-Identifier: Apache-2.0
 package lib
 
 import (
-	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"github.com/Hyperledger-TWGC/ccs-gm/tls"
+	x509GM "github.com/Hyperledger-TWGC/ccs-gm/x509"
+	"github.com/Hyperledger-TWGC/net-go-gm/http"
+	"github.com/hyperledger/fabric/bccsp/sw"
 	"io/ioutil"
-	"net/http"
 	"os"
 	"path/filepath"
 
 	"github.com/cloudflare/cfssl/log"
-	"github.com/grantae/certinfo"
 	"github.com/hyperledger/fabric-ca/internal/pkg/api"
 	"github.com/hyperledger/fabric-ca/lib/caerrors"
+	certinfo "github.com/hyperledger/fabric-ca/lib/gm/certinfo"
 	"github.com/pkg/errors"
 	"github.com/spf13/viper"
 )
@@ -39,16 +41,37 @@ func BytesToX509Cert(bytes []byte) (*x509.Certificate, error) {
 	if dcert != nil {
 		bytes = dcert.Bytes
 	}
-	cert, err := x509.ParseCertificate(bytes)
+	cert, err := x509GM.ParseCertificate(bytes)
 	if err != nil {
 		return nil, errors.Wrap(err, "Buffer was neither PEM nor DER encoding")
 	}
-	return cert, err
+	return sw.ParseSm2Certificate2X509(cert), err
 }
 
 // LoadPEMCertPool loads a pool of PEM certificates from list of files
 func LoadPEMCertPool(certFiles []string) (*x509.CertPool, error) {
 	certPool := x509.NewCertPool()
+
+	if len(certFiles) > 0 {
+		for _, cert := range certFiles {
+			log.Debugf("Reading cert file: %s", cert)
+			pemCerts, err := ioutil.ReadFile(cert)
+			if err != nil {
+				return nil, err
+			}
+
+			log.Debugf("Appending cert %s to pool", cert)
+			if !certPool.AppendCertsFromPEM(pemCerts) {
+				return nil, errors.New("Failed to load cert pool")
+			}
+		}
+	}
+
+	return certPool, nil
+}
+
+func LoadPEMGMCertPool(certFiles []string) (*x509GM.CertPool, error) {
+	certPool := x509GM.NewCertPool()
 
 	if len(certFiles) > 0 {
 		for _, cert := range certFiles {
@@ -170,10 +193,12 @@ func (cd *CertificateDecoder) CertificateDecoder(decoder *json.Decoder) error {
 	if block == nil || len(rest) > 0 {
 		return errors.New("Certificate decoding error")
 	}
-	certificate, err := x509.ParseCertificate(block.Bytes)
+	var certificate *x509.Certificate
+	certificateGM, err := x509GM.ParseCertificate(block.Bytes)
 	if err != nil {
 		return err
 	}
+	certificate = sw.ParseSm2Certificate2X509(certificateGM)
 	enrollmentID := certificate.Subject.CommonName
 	if cd.storePath != "" {
 		err = cd.storeCert(enrollmentID, cd.storePath, []byte(cert.PEM))
@@ -182,7 +207,7 @@ func (cd *CertificateDecoder) CertificateDecoder(decoder *json.Decoder) error {
 		}
 	}
 
-	result, err := certinfo.CertificateText(certificate)
+	result, err := certinfo.CertificateText(certificateGM)
 	if err != nil {
 		return err
 	}
