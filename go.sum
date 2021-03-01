@@ -66,8 +66,8 @@ github.com/eapache/go-xerial-snappy v0.0.0-20180814174437-776d5712da21/go.mod h1
 github.com/eapache/queue v1.1.0/go.mod h1:6eCeP0CKFpHLu8blIFXhExK/dRa7WDZfr6jVFPTqq+I=
 github.com/ehousecy/ccs-gm v0.1.2-0.20210226013248-cc995c360aed h1:wLJxLr6sPiceZ6d3G1H2KUOmIk5yhi1ylijlgyAHFBc=
 github.com/ehousecy/ccs-gm v0.1.2-0.20210226013248-cc995c360aed/go.mod h1:NYt3Izjky1wLk/1peAiE6N8dSlvrPhtk8HiNCqzIRPU=
-github.com/ehousecy/fabric v1.4.0-rc1.0.20210225104701-ad42c2f58610 h1:g+8Byh3HUAAGJeLGtW4jsgu/MBROOfAWSH2LH2O7f7M=
-github.com/ehousecy/fabric v1.4.0-rc1.0.20210225104701-ad42c2f58610/go.mod h1:R0czWN0ume25X35IBhi9+0msMMxT1fZ6ILEWA8fXmrM=
+github.com/ehousecy/fabric v1.4.0-rc1.0.20210301020024-bd4c0b42bb56 h1:3AIL1JyaWzltAyUsWc47bnlbK+zuf5doDcIN/W5Ajzs=
+github.com/ehousecy/fabric v1.4.0-rc1.0.20210301020024-bd4c0b42bb56/go.mod h1:HR9fJlgY1pI3vTmleGXCrM6h3rcc5h0kGV7BQKaz7Cc=
 github.com/envoyproxy/go-control-plane v0.9.0/go.mod h1:YTl/9mNaCwkRvm6d1a2C3ymFceY/DCBVvsKhRF0iEA4=
 github.com/envoyproxy/go-control-plane v0.9.4/go.mod h1:6rpuAdCZL397s3pYoYcLgu1mIlRU8Am5FuJP05cCM98=
 github.com/envoyproxy/protoc-gen-validate v0.1.0/go.mod h1:iSmxcyjqTsJpI2R4NaDN7+kN2VEUnK/pcBlmesArF7c=

@@ -4,7 +4,7 @@ go 1.15
 
 replace (
 	github.com/Hyperledger-TWGC/ccs-gm => github.com/ehousecy/ccs-gm v0.1.2-0.20210226013248-cc995c360aed
-	github.com/hyperledger/fabric => github.com/ehousecy/fabric v1.4.0-rc1.0.20210225104701-ad42c2f58610
+	github.com/hyperledger/fabric => github.com/ehousecy/fabric v1.4.0-rc1.0.20210301020024-bd4c0b42bb56
 )
 
 require (
